@@ -1,5 +1,8 @@
 import pool from '../config/db.js';
-import { loadProgramTree } from '../services/programContentService.js';
+import {
+  filterSectionsWithQuestions,
+  loadProgramTree,
+} from '../services/programContentService.js';
 import { requireActiveProgramByRef } from '../services/programLookup.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { httpError } from '../utils/httpError.js';
@@ -183,6 +186,7 @@ export const listPublicPrograms = asyncHandler(async (req, res) => {
 export const getPublicProgram = asyncHandler(async (req, res) => {
   const { id } = req.validated.params;
   const tree = await loadProgramTree(id, { includeCorrect: false });
+  tree.sections = filterSectionsWithQuestions(tree.sections);
   const userId = req.user.id;
   const sectionIds = tree.sections.map((section) => section.id);
   const { bySection, answersBySection } = await loadSubmissionMap(userId, sectionIds);

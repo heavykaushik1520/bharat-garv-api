@@ -37,13 +37,16 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY uq_users_phone (phone),
   UNIQUE KEY uq_users_school_std_div_roll (school_id, standard, division, roll_number),
   KEY idx_users_school_id (school_id),
+  KEY idx_users_school_standard (school_id, standard),
+  KEY idx_users_standard_active (standard, is_active),
+  KEY idx_users_active_school (is_active, school_id),
   KEY idx_users_language (preferred_language),
   KEY idx_users_created_at (created_at),
   CONSTRAINT fk_users_school
     FOREIGN KEY (school_id) REFERENCES schools (id)
     ON UPDATE CASCADE
     ON DELETE RESTRICT,
-  CONSTRAINT chk_users_standard CHECK (standard BETWEEN 1 AND 9)
+  CONSTRAINT chk_users_standard CHECK (standard BETWEEN 5 AND 9)
 ) ENGINE=InnoDB;
 
 INSERT INTO schools (name, city, is_active) VALUES
@@ -75,6 +78,8 @@ CREATE TABLE IF NOT EXISTS programs (
   KEY idx_programs_heading_en (heading_en)
 ) ENGINE=InnoDB;
 
+-- Invariant: every active section must have >= 1 active question
+-- (enforced in API + trg_program_questions_keep_one_active)
 CREATE TABLE IF NOT EXISTS program_sections (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   program_id INT UNSIGNED NOT NULL,
@@ -84,7 +89,9 @@ CREATE TABLE IF NOT EXISTS program_sections (
   subtitle_en VARCHAR(400) NOT NULL,
   subtitle_hi VARCHAR(400) NOT NULL,
   subtitle_mr VARCHAR(400) NOT NULL,
-  youtube_url VARCHAR(500) NOT NULL,
+  youtube_url_en VARCHAR(500) NOT NULL,
+  youtube_url_hi VARCHAR(500) NOT NULL,
+  youtube_url_mr VARCHAR(500) NOT NULL,
   sort_order INT UNSIGNED NOT NULL DEFAULT 1,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -179,6 +186,8 @@ CREATE TABLE IF NOT EXISTS program_section_submissions (
   PRIMARY KEY (id),
   UNIQUE KEY uq_user_section_submission (user_id, section_id),
   KEY idx_section_submissions_section (section_id),
+  KEY idx_submissions_user (user_id),
+  KEY idx_submissions_user_section (user_id, section_id),
   CONSTRAINT fk_section_submissions_user
     FOREIGN KEY (user_id) REFERENCES users (id)
     ON UPDATE CASCADE
@@ -212,3 +221,36 @@ CREATE TABLE IF NOT EXISTS program_section_answers (
     ON UPDATE CASCADE
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
+
+-- Prevent removing the last active question from an active section.
+-- Section soft-delete must deactivate the section row before its questions.
+DROP TRIGGER IF EXISTS trg_program_questions_keep_one_active;
+
+DELIMITER $$
+
+CREATE TRIGGER trg_program_questions_keep_one_active
+BEFORE UPDATE ON program_questions
+FOR EACH ROW
+BEGIN
+  IF OLD.is_active = 1 AND NEW.is_active = 0 THEN
+    IF (
+      SELECT s.is_active
+      FROM program_sections s
+      WHERE s.id = OLD.section_id
+      LIMIT 1
+    ) = 1 THEN
+      IF (
+        SELECT COUNT(*)
+        FROM program_questions q
+        WHERE q.section_id = OLD.section_id
+          AND q.is_active = 1
+          AND q.id <> OLD.id
+      ) = 0 THEN
+        SIGNAL SQLSTATE '45000'
+          SET MESSAGE_TEXT = 'Each active section must keep at least one question';
+      END IF;
+    END IF;
+  END IF;
+END$$
+
+DELIMITER ;

@@ -69,8 +69,8 @@ const standardSchema = z.coerce
     invalid_type_error: 'Standard is required',
   })
   .int('Standard must be a whole number')
-  .min(1, 'Standard must be between 1 and 9')
-  .max(9, 'Standard must be between 1 and 9');
+  .min(5, 'Standard must be between 5 and 9')
+  .max(9, 'Standard must be between 5 and 9');
 
 const divisionSchema = z
   .string({ required_error: 'Division is required' })

@@ -57,7 +57,31 @@ const upload = multer({
   fileFilter,
 });
 
+const sectionCreateUpload = multer({
+  storage,
+  limits: {
+    fileSize: MAX_QUESTION_IMAGE_BYTES,
+    files: 50,
+    fields: 40,
+    fieldSize: 1024 * 1024,
+  },
+  fileFilter,
+});
+
 export const uploadQuestionImage = upload.single('image');
+
+/** Optional multipart parser for section create (JSON requests pass through). */
+export function uploadSectionCreateImages(req, res, next) {
+  const contentType = String(req.headers['content-type'] || '').toLowerCase();
+  if (!contentType.includes('multipart/form-data')) {
+    return next();
+  }
+
+  return sectionCreateUpload.any()(req, res, (error) => {
+    if (!error) return next();
+    return cleanupUploadOnError(error, req, res, next);
+  });
+}
 
 export async function safeUnlinkPublicImage(publicUrl) {
   try {
@@ -79,6 +103,10 @@ export async function safeUnlinkUploadedFile(file) {
   }
 }
 
+export async function safeUnlinkUploadedFiles(files = []) {
+  await Promise.all(files.map((file) => safeUnlinkUploadedFile(file)));
+}
+
 export function uploadedQuestionImagePublicPath(file) {
   if (!file?.filename) return null;
   return toPublicQuestionImagePath(file.filename);
@@ -87,6 +115,11 @@ export function uploadedQuestionImagePublicPath(file) {
 export function cleanupUploadOnError(error, req, _res, next) {
   if (req.file?.path) {
     fs.unlink(req.file.path).catch(() => {});
+  }
+  if (Array.isArray(req.files)) {
+    for (const file of req.files) {
+      if (file?.path) fs.unlink(file.path).catch(() => {});
+    }
   }
   next(error);
 }

@@ -26,11 +26,29 @@ export const listAdminSchools = asyncHandler(async (req, res) => {
 
   // LIMIT/OFFSET must be inlined integers (already validated) — mysql2 named binds are unreliable here
   const [rows] = await pool.query(
-    `SELECT id, name, created_at, updated_at
-     FROM schools
-     WHERE is_active = 1
-       AND (:search = '' OR name LIKE :like ESCAPE '\\\\')
-     ORDER BY name ASC
+    `SELECT
+       s.id,
+       s.name,
+       s.created_at,
+       s.updated_at,
+       (
+         SELECT COUNT(*)
+         FROM users u
+         WHERE u.school_id = s.id
+           AND u.is_active = 1
+       ) AS registeredStudents,
+       (
+         SELECT COUNT(DISTINCT sub.user_id)
+         FROM users u
+         INNER JOIN program_section_submissions sub
+           ON sub.user_id = u.id
+         WHERE u.school_id = s.id
+           AND u.is_active = 1
+       ) AS participantStudents
+     FROM schools s
+     WHERE s.is_active = 1
+       AND (:search = '' OR s.name LIKE :like ESCAPE '\\\\')
+     ORDER BY s.name ASC
      LIMIT ${pagination.limit} OFFSET ${pagination.offset}`,
     {
       search,
@@ -38,9 +56,18 @@ export const listAdminSchools = asyncHandler(async (req, res) => {
     }
   );
 
+  const data = rows.map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    registeredStudents: Number(row.registeredStudents || 0),
+    participantStudents: Number(row.participantStudents || 0),
+  }));
+
   res.json({
     success: true,
-    data: rows,
+    data,
     pagination: {
       page: pagination.page,
       limit: pagination.limit,

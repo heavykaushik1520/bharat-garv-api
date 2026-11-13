@@ -45,8 +45,8 @@ export const listAdminStudentsSchema = z.object({
       z.coerce
         .number({ invalid_type_error: 'Invalid standard filter' })
         .int('Invalid standard filter')
-        .min(1, 'Standard must be between 1 and 9')
-        .max(9, 'Standard must be between 1 and 9')
+        .min(5, 'Standard must be between 5 and 9')
+        .max(9, 'Standard must be between 5 and 9')
         .optional()
     ),
     preferredLanguage: z.preprocess(

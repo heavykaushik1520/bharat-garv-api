@@ -1,5 +1,8 @@
 USE quiz_db;
 
+-- Invariant: every active section must keep >= 1 active question
+-- (see migrate_section_requires_questions.sql for cleanup + trigger)
+
 CREATE TABLE IF NOT EXISTS program_sections (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   program_id INT UNSIGNED NOT NULL,
@@ -9,7 +12,9 @@ CREATE TABLE IF NOT EXISTS program_sections (
   subtitle_en VARCHAR(400) NOT NULL,
   subtitle_hi VARCHAR(400) NOT NULL,
   subtitle_mr VARCHAR(400) NOT NULL,
-  youtube_url VARCHAR(500) NOT NULL,
+  youtube_url_en VARCHAR(500) NOT NULL,
+  youtube_url_hi VARCHAR(500) NOT NULL,
+  youtube_url_mr VARCHAR(500) NOT NULL,
   sort_order INT UNSIGNED NOT NULL DEFAULT 1,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

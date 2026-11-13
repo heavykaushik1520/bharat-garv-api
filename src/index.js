@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import pool from './config/db.js';
 import { UPLOAD_ROOT, ensureUploadDirs } from './config/uploads.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import adminAnalyticsRoutes from './routes/adminAnalytics.js';
 import adminProgramContentRoutes from './routes/adminProgramContent.js';
 import adminProgramsRoutes from './routes/adminPrograms.js';
 import adminSchoolsRoutes from './routes/adminSchools.js';
@@ -83,6 +84,7 @@ app.get('/api/db-check', async (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/schools', schoolsRoutes);
 app.use('/api/programs', programsRoutes);
+app.use('/api/admin/analytics', adminAnalyticsRoutes);
 app.use('/api/admin/schools', adminSchoolsRoutes);
 app.use('/api/admin/students', adminStudentsRoutes);
 app.use('/api/admin/programs', adminProgramsRoutes);

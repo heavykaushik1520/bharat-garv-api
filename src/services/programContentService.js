@@ -47,8 +47,12 @@ export function mapSection(row, questions = []) {
     subtitleEn: row.subtitle_en,
     subtitleHi: row.subtitle_hi,
     subtitleMr: row.subtitle_mr,
-    youtubeUrl: row.youtube_url,
-    youtubeEmbedUrl: youtubeEmbedUrl(row.youtube_url),
+    youtubeUrlEn: row.youtube_url_en,
+    youtubeUrlHi: row.youtube_url_hi,
+    youtubeUrlMr: row.youtube_url_mr,
+    youtubeEmbedUrlEn: youtubeEmbedUrl(row.youtube_url_en),
+    youtubeEmbedUrlHi: youtubeEmbedUrl(row.youtube_url_hi),
+    youtubeEmbedUrlMr: youtubeEmbedUrl(row.youtube_url_mr),
     sortOrder: row.sort_order,
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
@@ -67,7 +71,7 @@ export async function assertActiveSection(programRef, sectionId, connection = po
 
   const [rows] = await connection.query(
     `SELECT id, program_id, title_en, title_hi, title_mr, subtitle_en, subtitle_hi, subtitle_mr,
-            youtube_url, sort_order, is_active, created_at, updated_at
+            youtube_url_en, youtube_url_hi, youtube_url_mr, sort_order, is_active, created_at, updated_at
      FROM program_sections
      WHERE id = :sectionId AND program_id = :programId AND is_active = 1
      LIMIT 1`,
@@ -143,7 +147,7 @@ export async function loadProgramTree(programRef, { includeCorrect = false } = {
 
   const [sectionRows] = await connection.query(
     `SELECT id, program_id, title_en, title_hi, title_mr, subtitle_en, subtitle_hi, subtitle_mr,
-            youtube_url, sort_order, is_active, created_at, updated_at
+            youtube_url_en, youtube_url_hi, youtube_url_mr, sort_order, is_active, created_at, updated_at
      FROM program_sections
      WHERE program_id = :programId AND is_active = 1
      ORDER BY sort_order ASC, id ASC`,
@@ -248,4 +252,48 @@ export async function nextSortOrder(table, parentColumn, parentId, connection = 
     { parentId }
   );
   return Number(rows[0]?.next_order || 1);
+}
+
+/** Active question count for an active section (invariant: must stay >= 1). */
+export async function countActiveQuestions(sectionId, connection = pool) {
+  const [rows] = await connection.query(
+    `SELECT COUNT(*) AS total
+     FROM program_questions
+     WHERE section_id = :sectionId AND is_active = 1`,
+    { sectionId }
+  );
+  return Number(rows[0]?.total || 0);
+}
+
+/**
+ * Inserts one question + 4 options inside an open transaction.
+ * Caller owns commit/rollback and uploaded file cleanup.
+ */
+export async function insertQuestionWithOptions(
+  connection,
+  { sectionId, question, imageUrl = null, sortOrder }
+) {
+  const [result] = await connection.query(
+    `INSERT INTO program_questions
+      (section_id, headline_en, headline_hi, headline_mr, has_image, image_url, sort_order, is_active)
+     VALUES
+      (:sectionId, :headlineEn, :headlineHi, :headlineMr, :hasImage, :imageUrl, :sortOrder, 1)`,
+    {
+      sectionId,
+      headlineEn: question.headlineEn,
+      headlineHi: question.headlineHi,
+      headlineMr: question.headlineMr,
+      hasImage: question.hasImage ? 1 : 0,
+      imageUrl: question.hasImage ? imageUrl : null,
+      sortOrder,
+    }
+  );
+
+  await replaceQuestionOptions(connection, result.insertId, question.options);
+  return result.insertId;
+}
+
+/** Public/player payloads should never expose empty question cavities. */
+export function filterSectionsWithQuestions(sections = []) {
+  return sections.filter((section) => Array.isArray(section.questions) && section.questions.length > 0);
 }

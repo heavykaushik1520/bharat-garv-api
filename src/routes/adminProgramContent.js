@@ -10,9 +10,11 @@ import {
   updateAdminSection,
 } from '../controllers/adminProgramContentController.js';
 import { parseQuestionMultipart } from '../middleware/parseQuestionMultipart.js';
+import { parseSectionCreateMultipart } from '../middleware/parseSectionCreateMultipart.js';
 import {
   cleanupUploadOnError,
   uploadQuestionImage,
+  uploadSectionCreateImages,
 } from '../middleware/uploadQuestionImage.js';
 import { validate } from '../middleware/validate.js';
 import {
@@ -76,7 +78,14 @@ const questionWriteChain = [
 
 router.get('/tree', readLimiter, validate(programSectionParamsSchema), getAdminProgramTree);
 
-router.post('/sections', writeLimiter, validate(createSectionSchema), createAdminSection);
+router.post(
+  '/sections',
+  writeLimiter,
+  uploadSectionCreateImages,
+  parseSectionCreateMultipart,
+  validate(createSectionSchema),
+  createAdminSection
+);
 router.put(
   '/sections/:sectionId',
   writeLimiter,

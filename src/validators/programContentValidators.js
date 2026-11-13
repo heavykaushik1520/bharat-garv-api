@@ -26,15 +26,16 @@ const localizedTriple = (prefix, min, max) => ({
   [`${prefix}Mr`]: text(`Marathi ${prefix}`, min, max),
 });
 
-const youtubeUrlSchema = z
-  .string({ required_error: 'YouTube URL is required' })
-  .trim()
-  .min(11, 'YouTube URL is required')
-  .max(500, 'YouTube URL is too long')
-  .refine((value) => Boolean(normalizeYoutubeUrl(value)), {
-    message: 'Enter a valid YouTube video link',
-  })
-  .transform((value) => normalizeYoutubeUrl(value));
+const youtubeUrlSchema = (label = 'YouTube URL') =>
+  z
+    .string({ required_error: `${label} is required` })
+    .trim()
+    .min(11, `${label} is required`)
+    .max(500, `${label} is too long`)
+    .refine((value) => Boolean(normalizeYoutubeUrl(value)), {
+      message: `Enter a valid ${label}`,
+    })
+    .transform((value) => normalizeYoutubeUrl(value));
 
 const optionSchema = z
   .object({
@@ -75,15 +76,40 @@ const questionBodyBaseSchema = z
 /** Shared multipart question payload (image file is validated in middleware/controller). */
 const questionBodySchema = questionBodyBaseSchema;
 
-const sectionBodySchema = z
+/** Nested question payload used when creating a section atomically. */
+const nestedCreateQuestionSchema = z
   .object({
-    ...localizedTriple('title', 2, 220),
-    ...localizedTriple('subtitle', 2, 400),
-    youtubeUrl: youtubeUrlSchema,
+    ...localizedTriple('headline', 2, 400),
+    hasImage: z.boolean().optional().default(false),
+    options: optionsArraySchema,
     sortOrder: z.preprocess(
       emptyToUndefined,
       z.coerce.number().int().min(1).max(1000).optional()
     ),
+  })
+  .strict();
+
+const sectionMetaSchema = z
+  .object({
+    ...localizedTriple('title', 2, 220),
+    ...localizedTriple('subtitle', 2, 400),
+    youtubeUrlEn: youtubeUrlSchema('English YouTube URL'),
+    youtubeUrlHi: youtubeUrlSchema('Hindi YouTube URL'),
+    youtubeUrlMr: youtubeUrlSchema('Marathi YouTube URL'),
+    sortOrder: z.preprocess(
+      emptyToUndefined,
+      z.coerce.number().int().min(1).max(1000).optional()
+    ),
+  })
+  .strict();
+
+/** Section create requires at least one fully valid question. */
+const createSectionBodySchema = sectionMetaSchema
+  .extend({
+    questions: z
+      .array(nestedCreateQuestionSchema)
+      .min(1, 'Each section must include at least one question')
+      .max(50, 'Too many questions for one section'),
   })
   .strict();
 
@@ -104,7 +130,7 @@ export const createSectionSchema = z.object({
   params: z.object({
     programId: programRefParam,
   }),
-  body: sectionBodySchema,
+  body: createSectionBodySchema,
 });
 
 export const updateSectionSchema = z.object({
@@ -112,7 +138,7 @@ export const updateSectionSchema = z.object({
     programId: programRefParam,
     sectionId: idParam('section id'),
   }),
-  body: sectionBodySchema,
+  body: sectionMetaSchema,
 });
 
 export const createQuestionSchema = z.object({

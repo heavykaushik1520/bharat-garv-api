@@ -2,12 +2,23 @@ import fs from 'fs/promises';
 import multer from 'multer';
 
 async function cleanupRequestUpload(req) {
-  if (!req?.file?.path) return;
-  try {
-    await fs.unlink(req.file.path);
-  } catch {
-    // Ignore missing upload files
+  const paths = [];
+  if (req?.file?.path) paths.push(req.file.path);
+  if (Array.isArray(req?.files)) {
+    for (const file of req.files) {
+      if (file?.path) paths.push(file.path);
+    }
   }
+
+  await Promise.all(
+    paths.map(async (filePath) => {
+      try {
+        await fs.unlink(filePath);
+      } catch {
+        // Ignore missing upload files
+      }
+    })
+  );
 }
 
 export function notFoundHandler(_req, res) {
@@ -103,6 +114,23 @@ export async function errorHandler(error, req, res, _next) {
       success: false,
       message: 'This school cannot be removed because students are linked to it',
       errors: [{ field: 'id', message: 'School is in use' }],
+    });
+  }
+
+  if (
+    error?.code === 'ER_SIGNAL_EXCEPTION' ||
+    Number(error?.errno) === 1644 ||
+    String(error?.sqlMessage || '').includes('at least one question')
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Each section must keep at least one question',
+      errors: [
+        {
+          field: 'questions',
+          message: 'Add another question before deleting this one, or delete the whole section',
+        },
+      ],
     });
   }
 

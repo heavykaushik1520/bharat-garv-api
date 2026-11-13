@@ -63,7 +63,7 @@ CREATE TABLE users (
     FOREIGN KEY (school_id) REFERENCES schools (id)
     ON UPDATE CASCADE
     ON DELETE RESTRICT,
-  CONSTRAINT chk_users_standard CHECK (standard BETWEEN 1 AND 9)
+  CONSTRAINT chk_users_standard CHECK (standard BETWEEN 5 AND 9)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE programs (
@@ -82,6 +82,7 @@ CREATE TABLE programs (
   KEY idx_programs_heading_en (heading_en)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Invariant: every active section must have >= 1 active question
 CREATE TABLE program_sections (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   program_id INT UNSIGNED NOT NULL,
@@ -91,7 +92,9 @@ CREATE TABLE program_sections (
   subtitle_en VARCHAR(400) NOT NULL,
   subtitle_hi VARCHAR(400) NOT NULL,
   subtitle_mr VARCHAR(400) NOT NULL,
-  youtube_url VARCHAR(500) NOT NULL,
+  youtube_url_en VARCHAR(500) NOT NULL,
+  youtube_url_hi VARCHAR(500) NOT NULL,
+  youtube_url_mr VARCHAR(500) NOT NULL,
   sort_order INT UNSIGNED NOT NULL DEFAULT 1,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -289,7 +292,8 @@ INSERT INTO program_sections (
   id, program_id,
   title_en, title_hi, title_mr,
   subtitle_en, subtitle_hi, subtitle_mr,
-  youtube_url, sort_order, is_active
+  youtube_url_en, youtube_url_hi, youtube_url_mr,
+  sort_order, is_active
 ) VALUES
   (
     1, 1,
@@ -299,6 +303,8 @@ INSERT INTO program_sections (
     'Learn the story of Mumbai''s iconic monument.',
     'मुंबई के प्रतीक स्मारक की कहानी जानें।',
     'मुंबईच्या प्रतीक स्मारकाची कहाणी जाणून घ्या.',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     1, 1
   ),
@@ -311,6 +317,8 @@ INSERT INTO program_sections (
     'बंदरगाह के पार चट्टान-काटी विरासत खोजें।',
     'बंदरापलीकडील खडकात कोरलेला वारसा शोधा.',
     'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     2, 1
   ),
   (
@@ -321,6 +329,8 @@ INSERT INTO program_sections (
     'Explore Victorian Gothic architecture in Mumbai.',
     'मुंबई की विक्टोरियन गॉथिक वास्तुकला देखें।',
     'मुंबईतील व्हिक्टोरियन गॉथिक वास्तुकला पहा.',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     1, 1
   );
@@ -415,3 +425,34 @@ ALTER TABLE program_question_options AUTO_INCREMENT = 17;
 ALTER TABLE program_section_video_progress AUTO_INCREMENT = 4;
 ALTER TABLE program_section_submissions AUTO_INCREMENT = 3;
 ALTER TABLE program_section_answers AUTO_INCREMENT = 5;
+
+DROP TRIGGER IF EXISTS trg_program_questions_keep_one_active;
+
+DELIMITER $$
+
+CREATE TRIGGER trg_program_questions_keep_one_active
+BEFORE UPDATE ON program_questions
+FOR EACH ROW
+BEGIN
+  IF OLD.is_active = 1 AND NEW.is_active = 0 THEN
+    IF (
+      SELECT s.is_active
+      FROM program_sections s
+      WHERE s.id = OLD.section_id
+      LIMIT 1
+    ) = 1 THEN
+      IF (
+        SELECT COUNT(*)
+        FROM program_questions q
+        WHERE q.section_id = OLD.section_id
+          AND q.is_active = 1
+          AND q.id <> OLD.id
+      ) = 0 THEN
+        SIGNAL SQLSTATE '45000'
+          SET MESSAGE_TEXT = 'Each active section must keep at least one question';
+      END IF;
+    END IF;
+  END IF;
+END$$
+
+DELIMITER ;
