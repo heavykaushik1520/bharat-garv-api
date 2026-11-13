@@ -110,9 +110,9 @@ CREATE TABLE program_sections (
 CREATE TABLE program_questions (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   section_id INT UNSIGNED NOT NULL,
-  headline_en VARCHAR(400) NOT NULL,
-  headline_hi VARCHAR(400) NOT NULL,
-  headline_mr VARCHAR(400) NOT NULL,
+  headline_en VARCHAR(1000) NOT NULL,
+  headline_hi VARCHAR(1000) NOT NULL,
+  headline_mr VARCHAR(1000) NOT NULL,
   has_image TINYINT(1) NOT NULL DEFAULT 0,
   image_url VARCHAR(500) NULL,
   sort_order INT UNSIGNED NOT NULL DEFAULT 1,

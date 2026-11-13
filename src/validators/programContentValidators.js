@@ -62,7 +62,7 @@ const optionsArraySchema = z
 
 const questionBodyBaseSchema = z
   .object({
-    ...localizedTriple('headline', 2, 400),
+    ...localizedTriple('headline', 2, 1000),
     hasImage: z.boolean().optional().default(false),
     keepExistingImage: z.boolean().optional().default(false),
     options: optionsArraySchema,
@@ -79,7 +79,7 @@ const questionBodySchema = questionBodyBaseSchema;
 /** Nested question payload used when creating a section atomically. */
 const nestedCreateQuestionSchema = z
   .object({
-    ...localizedTriple('headline', 2, 400),
+    ...localizedTriple('headline', 2, 1000),
     hasImage: z.boolean().optional().default(false),
     options: optionsArraySchema,
     sortOrder: z.preprocess(
