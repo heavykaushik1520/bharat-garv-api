@@ -1,13 +1,8 @@
 import pool from '../config/db.js';
+import { streamStudentExport } from '../services/studentExportService.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { httpError } from '../utils/httpError.js';
 import { buildPagination, escapeLike } from '../utils/sql.js';
-
-function httpError(message, statusCode = 400, errors = []) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  error.errors = errors;
-  return error;
-}
 
 const STUDENT_SELECT = `
   u.id,
@@ -171,6 +166,23 @@ export const listAdminStudents = asyncHandler(async (req, res) => {
       active: Number(summaryRows[0]?.active_count || 0),
       inactive: Number(summaryRows[0]?.inactive_count || 0),
     },
+  });
+});
+
+/** GET — CSV / Excel export of filtered students (streamed, password-safe) */
+export const exportAdminStudents = asyncHandler(async (req, res) => {
+  const query = req.validated.query;
+  const { whereSql, params } = buildStudentFilters(query);
+  const orderBy = sortClause(query.sort);
+
+  await streamStudentExport({
+    req,
+    res,
+    format: query.format,
+    whereSql,
+    params,
+    orderBy,
+    query,
   });
 });
 

@@ -38,6 +38,12 @@ export function mapQuestion(row, options = [], { includeCorrect = false } = {}) 
 
 export function mapSection(row, questions = []) {
   if (!row) return null;
+  const questionBankCount = Array.isArray(questions) ? questions.length : 0;
+  const questionsToServe =
+    row.questions_to_serve == null || row.questions_to_serve === ''
+      ? null
+      : Number(row.questions_to_serve);
+
   return {
     id: row.id,
     programId: row.program_id,
@@ -54,6 +60,9 @@ export function mapSection(row, questions = []) {
     youtubeEmbedUrlHi: youtubeEmbedUrl(row.youtube_url_hi),
     youtubeEmbedUrlMr: youtubeEmbedUrl(row.youtube_url_mr),
     sortOrder: row.sort_order,
+    questionsToServe,
+    questionBankCount,
+    questionsServed: questionsToServe == null ? questionBankCount : questionsToServe,
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -71,7 +80,8 @@ export async function assertActiveSection(programRef, sectionId, connection = po
 
   const [rows] = await connection.query(
     `SELECT id, program_id, title_en, title_hi, title_mr, subtitle_en, subtitle_hi, subtitle_mr,
-            youtube_url_en, youtube_url_hi, youtube_url_mr, sort_order, is_active, created_at, updated_at
+            youtube_url_en, youtube_url_hi, youtube_url_mr, sort_order, questions_to_serve,
+            is_active, created_at, updated_at
      FROM program_sections
      WHERE id = :sectionId AND program_id = :programId AND is_active = 1
      LIMIT 1`,
@@ -147,7 +157,8 @@ export async function loadProgramTree(programRef, { includeCorrect = false } = {
 
   const [sectionRows] = await connection.query(
     `SELECT id, program_id, title_en, title_hi, title_mr, subtitle_en, subtitle_hi, subtitle_mr,
-            youtube_url_en, youtube_url_hi, youtube_url_mr, sort_order, is_active, created_at, updated_at
+            youtube_url_en, youtube_url_hi, youtube_url_mr, sort_order, questions_to_serve,
+            is_active, created_at, updated_at
      FROM program_sections
      WHERE program_id = :programId AND is_active = 1
      ORDER BY sort_order ASC, id ASC`,

@@ -34,6 +34,7 @@ app.use(
     origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Disposition', 'X-Export-Row-Count'],
   })
 );
 

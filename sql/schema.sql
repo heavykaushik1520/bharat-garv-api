@@ -41,7 +41,10 @@ CREATE TABLE IF NOT EXISTS users (
   KEY idx_users_standard_active (standard, is_active),
   KEY idx_users_active_school (is_active, school_id),
   KEY idx_users_language (preferred_language),
+  KEY idx_users_language_active (preferred_language, is_active, id),
   KEY idx_users_created_at (created_at),
+  KEY idx_users_status_created (is_active, created_at, id),
+  KEY idx_users_name_sort (first_name, last_name, id),
   CONSTRAINT fk_users_school
     FOREIGN KEY (school_id) REFERENCES schools (id)
     ON UPDATE CASCADE
@@ -93,6 +96,8 @@ CREATE TABLE IF NOT EXISTS program_sections (
   youtube_url_hi VARCHAR(500) NOT NULL,
   youtube_url_mr VARCHAR(500) NOT NULL,
   sort_order INT UNSIGNED NOT NULL DEFAULT 1,
+  -- NULL = serve all eligible bank questions; otherwise random sample of this size per student
+  questions_to_serve INT UNSIGNED NULL DEFAULT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -101,7 +106,9 @@ CREATE TABLE IF NOT EXISTS program_sections (
   CONSTRAINT fk_program_sections_program
     FOREIGN KEY (program_id) REFERENCES programs (id)
     ON UPDATE CASCADE
-    ON DELETE RESTRICT
+    ON DELETE RESTRICT,
+  CONSTRAINT chk_questions_to_serve
+    CHECK (questions_to_serve IS NULL OR questions_to_serve BETWEEN 1 AND 100)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS program_questions (
@@ -149,6 +156,48 @@ CREATE TABLE IF NOT EXISTS program_question_options (
     ON DELETE CASCADE,
   CONSTRAINT chk_option_sort_order CHECK (sort_order BETWEEN 1 AND 4),
   CONSTRAINT chk_option_is_correct CHECK (is_correct IN (0, 1))
+) ENGINE=InnoDB;
+
+-- Durable random (or full-bank) question set assigned to a student for one section.
+CREATE TABLE IF NOT EXISTS program_section_question_assignments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  section_id INT UNSIGNED NOT NULL,
+  question_count INT UNSIGNED NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_user_section_assignment (user_id, section_id),
+  KEY idx_assignment_section (section_id),
+  KEY idx_assignment_user (user_id),
+  CONSTRAINT fk_assignment_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  CONSTRAINT fk_assignment_section
+    FOREIGN KEY (section_id) REFERENCES program_sections (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  CONSTRAINT chk_assignment_question_count CHECK (question_count >= 1)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS program_section_assignment_questions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  assignment_id BIGINT UNSIGNED NOT NULL,
+  question_id INT UNSIGNED NOT NULL,
+  sort_order INT UNSIGNED NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_assignment_question (assignment_id, question_id),
+  UNIQUE KEY uq_assignment_sort (assignment_id, sort_order),
+  KEY idx_assignment_q_question (question_id),
+  CONSTRAINT fk_assignment_q_assignment
+    FOREIGN KEY (assignment_id) REFERENCES program_section_question_assignments (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  CONSTRAINT fk_assignment_q_question
+    FOREIGN KEY (question_id) REFERENCES program_questions (id)
+    ON UPDATE CASCADE
+    ON DELETE RESTRICT,
+  CONSTRAINT chk_assignment_q_sort CHECK (sort_order >= 1)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS program_section_video_progress (

@@ -75,10 +75,10 @@ export const createAdminSection = asyncHandler(async (req, res) => {
     const [sectionResult] = await connection.query(
       `INSERT INTO program_sections
         (program_id, title_en, title_hi, title_mr, subtitle_en, subtitle_hi, subtitle_mr,
-         youtube_url_en, youtube_url_hi, youtube_url_mr, sort_order, is_active)
+         youtube_url_en, youtube_url_hi, youtube_url_mr, sort_order, questions_to_serve, is_active)
        VALUES
         (:programId, :titleEn, :titleHi, :titleMr, :subtitleEn, :subtitleHi, :subtitleMr,
-         :youtubeUrlEn, :youtubeUrlHi, :youtubeUrlMr, :sortOrder, 1)`,
+         :youtubeUrlEn, :youtubeUrlHi, :youtubeUrlMr, :sortOrder, :questionsToServe, 1)`,
       {
         programId,
         titleEn: body.titleEn,
@@ -91,6 +91,7 @@ export const createAdminSection = asyncHandler(async (req, res) => {
         youtubeUrlHi: body.youtubeUrlHi,
         youtubeUrlMr: body.youtubeUrlMr,
         sortOrder,
+        questionsToServe: body.questionsToServe ?? null,
       }
     );
 
@@ -134,6 +135,20 @@ export const updateAdminSection = asyncHandler(async (req, res) => {
   const sectionCurrent = await assertActiveSection(programRef, sectionId);
   const programId = sectionCurrent.program_id;
 
+  const activeQuestionCount = await countActiveQuestions(sectionId);
+  if (body.questionsToServe != null && body.questionsToServe > activeQuestionCount) {
+    throw httpError(
+      `Questions per student (${body.questionsToServe}) cannot exceed the question bank (${activeQuestionCount}).`,
+      400,
+      [
+        {
+          field: 'questionsToServe',
+          message: `Add more questions or set questions per student to ${activeQuestionCount} or less`,
+        },
+      ]
+    );
+  }
+
   await pool.query(
     `UPDATE program_sections
      SET title_en = :titleEn,
@@ -145,7 +160,8 @@ export const updateAdminSection = asyncHandler(async (req, res) => {
          youtube_url_en = :youtubeUrlEn,
          youtube_url_hi = :youtubeUrlHi,
          youtube_url_mr = :youtubeUrlMr,
-         sort_order = COALESCE(:sortOrder, sort_order)
+         sort_order = COALESCE(:sortOrder, sort_order),
+         questions_to_serve = :questionsToServe
      WHERE id = :sectionId AND program_id = :programId AND is_active = 1`,
     {
       programId,
@@ -159,6 +175,7 @@ export const updateAdminSection = asyncHandler(async (req, res) => {
       youtubeUrlEn: body.youtubeUrlEn,
       youtubeUrlHi: body.youtubeUrlHi,
       youtubeUrlMr: body.youtubeUrlMr,
+      questionsToServe: body.questionsToServe ?? null,
       sortOrder: body.sortOrder ?? null,
     }
   );
@@ -397,6 +414,31 @@ export const deleteAdminQuestion = asyncHandler(async (req, res) => {
           message: 'Add another question before deleting this one, or delete the whole section',
         },
       ]);
+    }
+
+    const [sectionMeta] = await connection.query(
+      `SELECT questions_to_serve
+       FROM program_sections
+       WHERE id = :sectionId
+       LIMIT 1`,
+      { sectionId }
+    );
+    const questionsToServe =
+      sectionMeta[0]?.questions_to_serve == null
+        ? null
+        : Number(sectionMeta[0].questions_to_serve);
+    const remaining = activeCount - 1;
+    if (questionsToServe != null && remaining < questionsToServe) {
+      throw httpError(
+        `Cannot delete this question. The section serves ${questionsToServe} questions per student and only ${activeCount} remain in the bank.`,
+        400,
+        [
+          {
+            field: 'questions',
+            message: `Lower “questions per student” below ${activeCount}, or add more questions first`,
+          },
+        ]
+      );
     }
 
     imageUrlToRemove = existing[0].image_url || null;

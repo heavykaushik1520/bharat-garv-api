@@ -3,6 +3,10 @@ import {
   filterSectionsWithQuestions,
   loadProgramTree,
 } from '../services/programContentService.js';
+import {
+  applyAssignmentsToSections,
+  ensureQuestionAssignmentsForSections,
+} from '../services/questionAssignmentService.js';
 import { requireActiveProgramByRef } from '../services/programLookup.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { httpError } from '../utils/httpError.js';
@@ -188,11 +192,20 @@ export const getPublicProgram = asyncHandler(async (req, res) => {
   const tree = await loadProgramTree(id, { includeCorrect: false });
   tree.sections = filterSectionsWithQuestions(tree.sections);
   const userId = req.user.id;
-  const sectionIds = tree.sections.map((section) => section.id);
+
+  const assignmentBySection = await ensureQuestionAssignmentsForSections({
+    userId,
+    sections: tree.sections,
+  });
+  const assignedSections = applyAssignmentsToSections(tree.sections, assignmentBySection).filter(
+    (section) => Array.isArray(section.questions) && section.questions.length > 0
+  );
+
+  const sectionIds = assignedSections.map((section) => section.id);
   const { bySection, answersBySection } = await loadSubmissionMap(userId, sectionIds);
   const videoBySection = await loadVideoProgressMap(userId, sectionIds);
 
-  const sections = tree.sections.map((section) => {
+  const sections = assignedSections.map((section) => {
     const submission = bySection.get(section.id);
     const answers = answersBySection.get(section.id) || [];
     const videoProgress = videoBySection.get(section.id) || {
@@ -365,14 +378,25 @@ export const submitPublicSection = asyncHandler(async (req, res) => {
     );
   }
 
-  const questionMap = new Map(section.questions.map((question) => [question.id, question]));
-  if (answers.length !== section.questions.length) {
+  const assignmentBySection = await ensureQuestionAssignmentsForSections({
+    userId,
+    sections: [section],
+  });
+  const [assignedSection] = applyAssignmentsToSections([section], assignmentBySection);
+  const quizQuestions = assignedSection?.questions || [];
+
+  if (!quizQuestions.length) {
+    throw httpError('No quiz questions are assigned for this section yet', 400);
+  }
+
+  const questionMap = new Map(quizQuestions.map((question) => [question.id, question]));
+  if (answers.length !== quizQuestions.length) {
     throw httpError('All questions are mandatory. Please answer every question.', 400, [
       { field: 'answers', message: 'Answer every question before submitting' },
     ]);
   }
 
-  for (const question of section.questions) {
+  for (const question of quizQuestions) {
     if (!answers.some((answer) => answer.questionId === question.id)) {
       throw httpError('All questions are mandatory. Please answer every question.', 400, [
         { field: 'answers', message: `Missing answer for question ${question.id}` },
@@ -384,7 +408,9 @@ export const submitPublicSection = asyncHandler(async (req, res) => {
   for (const answer of answers) {
     const question = questionMap.get(answer.questionId);
     if (!question) {
-      throw httpError('One or more answers are invalid for this section', 400);
+      throw httpError('One or more answers are not part of your assigned quiz set', 400, [
+        { field: 'answers', message: 'Submit only the questions shown in your quiz' },
+      ]);
     }
 
     const option = question.options.find((item) => item.id === answer.optionId);

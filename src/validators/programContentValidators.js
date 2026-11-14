@@ -89,6 +89,18 @@ const nestedCreateQuestionSchema = z
   })
   .strict();
 
+const questionsToServeSchema = z.preprocess((value) => {
+  if (value === '' || value === undefined || value === null) return null;
+  return value;
+}, z.union([
+  z.null(),
+  z.coerce
+    .number({ invalid_type_error: 'Questions per student must be a number' })
+    .int('Questions per student must be a whole number')
+    .min(1, 'Questions per student must be at least 1')
+    .max(100, 'Questions per student cannot exceed 100'),
+]));
+
 const sectionMetaSchema = z
   .object({
     ...localizedTriple('title', 2, 220),
@@ -100,6 +112,7 @@ const sectionMetaSchema = z
       emptyToUndefined,
       z.coerce.number().int().min(1).max(1000).optional()
     ),
+    questionsToServe: questionsToServeSchema.optional().default(null),
   })
   .strict();
 
@@ -109,9 +122,18 @@ const createSectionBodySchema = sectionMetaSchema
     questions: z
       .array(nestedCreateQuestionSchema)
       .min(1, 'Each section must include at least one question')
-      .max(50, 'Too many questions for one section'),
+      .max(100, 'Too many questions for one section'),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.questionsToServe != null && data.questionsToServe > data.questions.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Questions per student (${data.questionsToServe}) cannot exceed the question bank (${data.questions.length})`,
+        path: ['questionsToServe'],
+      });
+    }
+  });
 
 export const programSectionParamsSchema = z.object({
   params: z.object({

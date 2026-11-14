@@ -18,12 +18,48 @@ export const studentIdParamSchema = z.object({
   }),
 });
 
+const studentListFiltersSchema = z.object({
+  search: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().max(180, 'Search text is too long').optional().default('')
+  ),
+  schoolId: z.preprocess(
+    emptyToUndefined,
+    z.coerce
+      .number({ invalid_type_error: 'Invalid school filter' })
+      .int('Invalid school filter')
+      .positive('Invalid school filter')
+      .optional()
+  ),
+  standard: z.preprocess(
+    emptyToUndefined,
+    z.coerce
+      .number({ invalid_type_error: 'Invalid standard filter' })
+      .int('Invalid standard filter')
+      .min(5, 'Standard must be between 5 and 9')
+      .max(9, 'Standard must be between 5 and 9')
+      .optional()
+  ),
+  preferredLanguage: z.preprocess(
+    emptyToUndefined,
+    z
+      .enum(['en', 'hi', 'mr'], {
+        invalid_type_error: 'Language must be en, hi, or mr',
+      })
+      .optional()
+  ),
+  status: z.preprocess(
+    emptyToUndefined,
+    z.enum(['all', 'active', 'inactive']).optional().default('all')
+  ),
+  sort: z.preprocess(
+    emptyToUndefined,
+    z.enum(['newest', 'oldest', 'name_asc', 'name_desc']).optional().default('newest')
+  ),
+});
+
 export const listAdminStudentsSchema = z.object({
-  query: z.object({
-    search: z.preprocess(
-      emptyToUndefined,
-      z.string().trim().max(180, 'Search text is too long').optional().default('')
-    ),
+  query: studentListFiltersSchema.extend({
     page: z.preprocess(
       emptyToUndefined,
       z.coerce.number().int().min(1, 'Page must be at least 1').optional().default(1)
@@ -32,39 +68,19 @@ export const listAdminStudentsSchema = z.object({
       (value) => PAGE_LIMITS.includes(value),
       { message: 'Limit must be one of 10, 25, 50, or 100' }
     ),
-    schoolId: z.preprocess(
-      emptyToUndefined,
-      z.coerce
-        .number({ invalid_type_error: 'Invalid school filter' })
-        .int('Invalid school filter')
-        .positive('Invalid school filter')
-        .optional()
-    ),
-    standard: z.preprocess(
-      emptyToUndefined,
-      z.coerce
-        .number({ invalid_type_error: 'Invalid standard filter' })
-        .int('Invalid standard filter')
-        .min(5, 'Standard must be between 5 and 9')
-        .max(9, 'Standard must be between 5 and 9')
-        .optional()
-    ),
-    preferredLanguage: z.preprocess(
-      emptyToUndefined,
-      z.enum(['en', 'hi', 'mr'], {
-        invalid_type_error: 'Language must be en, hi, or mr',
-      }).optional()
-    ),
-    status: z.preprocess(
-      emptyToUndefined,
-      z.enum(['all', 'active', 'inactive']).optional().default('all')
-    ),
-    sort: z.preprocess(
+  }),
+});
+
+export const exportAdminStudentsSchema = z.object({
+  query: studentListFiltersSchema.extend({
+    format: z.preprocess(
       emptyToUndefined,
       z
-        .enum(['newest', 'oldest', 'name_asc', 'name_desc'])
+        .enum(['csv', 'xlsx'], {
+          invalid_type_error: 'Format must be csv or xlsx',
+        })
         .optional()
-        .default('newest')
+        .default('csv')
     ),
   }),
 });

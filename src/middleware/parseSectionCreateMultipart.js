@@ -81,6 +81,10 @@ export const parseSectionCreateMultipart = asyncHandler(async (req, _res, next) 
     youtubeUrlHi: body.youtubeUrlHi,
     youtubeUrlMr: body.youtubeUrlMr,
     questions,
+    questionsToServe:
+      body.questionsToServe === undefined || body.questionsToServe === ''
+        ? null
+        : body.questionsToServe,
     ...(body.sortOrder !== undefined && body.sortOrder !== ''
       ? { sortOrder: body.sortOrder }
       : {}),

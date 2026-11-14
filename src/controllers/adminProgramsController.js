@@ -157,18 +157,20 @@ export const deleteAdminProgram = asyncHandler(async (req, res) => {
   try {
     await connection.beginTransaction();
 
+    // Deactivate sections first so trg_program_questions_keep_one_active
+    // allows clearing every question under still-linked sections.
+    await connection.query(
+      `UPDATE program_sections
+       SET is_active = 0
+       WHERE program_id = :id AND is_active = 1`,
+      { id }
+    );
+
     await connection.query(
       `UPDATE program_questions q
        INNER JOIN program_sections s ON s.id = q.section_id
        SET q.is_active = 0
        WHERE s.program_id = :id AND q.is_active = 1`,
-      { id }
-    );
-
-    await connection.query(
-      `UPDATE program_sections
-       SET is_active = 0
-       WHERE program_id = :id AND is_active = 1`,
       { id }
     );
 
