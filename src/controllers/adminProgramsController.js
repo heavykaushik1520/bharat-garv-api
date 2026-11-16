@@ -5,20 +5,42 @@ import {
   resolveAdminProgramSlug,
 } from '../services/programLookup.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import {
+  assertValidScheduleWindow,
+  buildSchedulePayload,
+  toMysqlEndOfDayUtc,
+  toMysqlStartOfDayUtc,
+} from '../utils/programSchedule.js';
 import { buildPagination, escapeLike } from '../utils/sql.js';
+
+const PROGRAM_COLUMNS = `id, slug, heading_en, heading_hi, heading_mr, starts_at, ends_at, is_active, created_at, updated_at`;
 
 function mapProgram(row) {
   if (!row) return null;
+  const schedule = buildSchedulePayload(row.starts_at, row.ends_at);
   return {
     id: row.id,
     slug: row.slug,
     headingEn: row.heading_en,
     headingHi: row.heading_hi,
     headingMr: row.heading_mr,
+    startsAt: schedule.startsAt,
+    endsAt: schedule.endsAt,
+    startsOn: schedule.startsOn,
+    endsOn: schedule.endsOn,
+    scheduleStatus: schedule.scheduleStatus,
+    isOpen: schedule.isOpen,
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function parseScheduleBody(body) {
+  const startsAt = toMysqlStartOfDayUtc(body.startsAt, 'startsAt');
+  const endsAt = toMysqlEndOfDayUtc(body.endsAt, 'endsAt');
+  assertValidScheduleWindow(startsAt, endsAt);
+  return { startsAt, endsAt };
 }
 
 export const listAdminPrograms = asyncHandler(async (req, res) => {
@@ -43,7 +65,7 @@ export const listAdminPrograms = asyncHandler(async (req, res) => {
   const pagination = buildPagination({ page, limit, total });
 
   const [rows] = await pool.query(
-    `SELECT id, slug, heading_en, heading_hi, heading_mr, is_active, created_at, updated_at
+    `SELECT ${PROGRAM_COLUMNS}
      FROM programs
      WHERE is_active = 1
        AND (
@@ -86,19 +108,23 @@ export const getAdminProgram = asyncHandler(async (req, res) => {
 
 export const createAdminProgram = asyncHandler(async (req, res) => {
   const { headingEn, headingHi, headingMr, slug: slugInput } = req.validated.body;
+  const { startsAt, endsAt } = parseScheduleBody(req.validated.body);
   const slug = await resolveAdminProgramSlug({
     slugInput,
     headingEn,
   });
 
   const [result] = await pool.query(
-    `INSERT INTO programs (slug, heading_en, heading_hi, heading_mr, is_active)
-     VALUES (:slug, :headingEn, :headingHi, :headingMr, 1)`,
-    { slug, headingEn, headingHi, headingMr }
+    `INSERT INTO programs (
+       slug, heading_en, heading_hi, heading_mr, starts_at, ends_at, is_active
+     ) VALUES (
+       :slug, :headingEn, :headingHi, :headingMr, :startsAt, :endsAt, 1
+     )`,
+    { slug, headingEn, headingHi, headingMr, startsAt, endsAt }
   );
 
   const [rows] = await pool.query(
-    `SELECT id, slug, heading_en, heading_hi, heading_mr, is_active, created_at, updated_at
+    `SELECT ${PROGRAM_COLUMNS}
      FROM programs
      WHERE id = :id
      LIMIT 1`,
@@ -115,6 +141,7 @@ export const createAdminProgram = asyncHandler(async (req, res) => {
 export const updateAdminProgram = asyncHandler(async (req, res) => {
   const { id: programRef } = req.validated.params;
   const { headingEn, headingHi, headingMr, slug: slugInput } = req.validated.body;
+  const { startsAt, endsAt } = parseScheduleBody(req.validated.body);
   const current = await requireActiveProgramByRef(programRef);
 
   const slug = await resolveAdminProgramSlug({
@@ -128,13 +155,15 @@ export const updateAdminProgram = asyncHandler(async (req, res) => {
      SET slug = :slug,
          heading_en = :headingEn,
          heading_hi = :headingHi,
-         heading_mr = :headingMr
+         heading_mr = :headingMr,
+         starts_at = :startsAt,
+         ends_at = :endsAt
      WHERE id = :id AND is_active = 1`,
-    { id: current.id, slug, headingEn, headingHi, headingMr }
+    { id: current.id, slug, headingEn, headingHi, headingMr, startsAt, endsAt }
   );
 
   const [rows] = await pool.query(
-    `SELECT id, slug, heading_en, heading_hi, heading_mr, is_active, created_at, updated_at
+    `SELECT ${PROGRAM_COLUMNS}
      FROM programs
      WHERE id = :id
      LIMIT 1`,
@@ -157,8 +186,6 @@ export const deleteAdminProgram = asyncHandler(async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // Deactivate sections first so trg_program_questions_keep_one_active
-    // allows clearing every question under still-linked sections.
     await connection.query(
       `UPDATE program_sections
        SET is_active = 0
@@ -181,7 +208,6 @@ export const deleteAdminProgram = asyncHandler(async (req, res) => {
       { id }
     );
 
-    // Free the public slug so a new/edited program can reuse it.
     await releaseProgramSlug(id, { connection });
 
     await connection.commit();

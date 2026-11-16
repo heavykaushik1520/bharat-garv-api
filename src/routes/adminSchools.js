@@ -3,15 +3,19 @@ import rateLimit from 'express-rate-limit';
 import {
   createAdminSchool,
   deleteAdminSchool,
+  downloadSchoolImportTemplate,
   getAdminSchool,
+  importAdminSchools,
   listAdminSchools,
   updateAdminSchool,
 } from '../controllers/adminSchoolsController.js';
+import { uploadSchoolImport } from '../middleware/uploadSchoolImport.js';
 import { validate } from '../middleware/validate.js';
 import {
   createSchoolSchema,
   listAdminSchoolsSchema,
   schoolIdParamSchema,
+  schoolImportTemplateSchema,
   updateSchoolSchema,
 } from '../validators/schoolValidators.js';
 
@@ -39,7 +43,25 @@ const writeLimiter = rateLimit({
   },
 });
 
+const importLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many import attempts. Please try again later.',
+  },
+});
+
 router.get('/', readLimiter, validate(listAdminSchoolsSchema), listAdminSchools);
+router.get(
+  '/import/template',
+  readLimiter,
+  validate(schoolImportTemplateSchema),
+  downloadSchoolImportTemplate
+);
+router.post('/import', importLimiter, uploadSchoolImport, importAdminSchools);
 router.get('/:id', readLimiter, validate(schoolIdParamSchema), getAdminSchool);
 router.post('/', writeLimiter, validate(createSchoolSchema), createAdminSchool);
 router.put('/:id', writeLimiter, validate(updateSchoolSchema), updateAdminSchool);

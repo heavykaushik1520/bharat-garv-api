@@ -2,8 +2,10 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import {
   changePassword,
+  forgotPassword,
   login,
   me,
+  resetPassword,
   signup,
   updateLanguage,
   updateProfile,
@@ -12,7 +14,9 @@ import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import {
   changePasswordSchema,
+  forgotPasswordSchema,
   loginSchema,
+  resetPasswordSchema,
   signupSchema,
   updateLanguageSchema,
   updateProfileSchema,
@@ -53,8 +57,42 @@ const profileLimiter = rateLimit({
   },
 });
 
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many password reset requests. Please try again later.',
+  },
+});
+
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many password reset attempts. Please try again later.',
+  },
+});
+
 router.post('/signup', signupLimiter, validate(signupSchema), signup);
 router.post('/login', loginLimiter, validate(loginSchema), login);
+router.post(
+  '/forgot-password',
+  forgotPasswordLimiter,
+  validate(forgotPasswordSchema),
+  forgotPassword
+);
+router.post(
+  '/reset-password',
+  resetPasswordLimiter,
+  validate(resetPasswordSchema),
+  resetPassword
+);
 router.get('/me', requireAuth, me);
 router.put('/profile', requireAuth, profileLimiter, validate(updateProfileSchema), updateProfile);
 router.patch(

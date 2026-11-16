@@ -1,18 +1,37 @@
 import { z } from 'zod';
+import { normalizeSchoolText } from '../utils/schoolLabel.js';
 
 const schoolNameSchema = z
   .string({ required_error: 'School name is required' })
-  .trim()
-  .min(2, 'School name must be at least 2 characters')
-  .max(180, 'School name must be at most 180 characters')
-  .refine((value) => /[A-Za-z0-9]/.test(value), {
-    message: 'School name must include letters or numbers',
-  });
+  .transform((value) => normalizeSchoolText(value))
+  .pipe(
+    z
+      .string()
+      .min(2, 'School name must be at least 2 characters')
+      .max(180, 'School name must be at most 180 characters')
+      .refine((value) => /[A-Za-z0-9]/.test(value), {
+        message: 'School name must include letters or numbers',
+      })
+  );
+
+const schoolWardSchema = z
+  .string({ required_error: 'Ward is required' })
+  .transform((value) => normalizeSchoolText(value))
+  .pipe(
+    z
+      .string()
+      .min(1, 'Ward is required')
+      .max(120, 'Ward must be at most 120 characters')
+      .refine((value) => /[A-Za-z0-9]/.test(value), {
+        message: 'Ward must include letters or numbers',
+      })
+  );
 
 export const createSchoolSchema = z.object({
   body: z
     .object({
       name: schoolNameSchema,
+      ward: schoolWardSchema,
     })
     .strict(),
 });
@@ -27,6 +46,7 @@ export const updateSchoolSchema = z.object({
   body: z
     .object({
       name: schoolNameSchema,
+      ward: schoolWardSchema,
     })
     .strict(),
 });
@@ -63,3 +83,16 @@ export const listAdminSchoolsSchema = z.object({
       .default(10),
   }),
 });
+
+export const schoolImportTemplateSchema = z.object({
+  query: z.object({
+    format: z
+      .enum(['xlsx', 'csv'], {
+        invalid_type_error: 'Format must be xlsx or csv',
+      })
+      .optional()
+      .default('xlsx'),
+  }),
+});
+
+export { schoolNameSchema, schoolWardSchema };

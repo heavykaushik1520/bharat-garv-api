@@ -8,8 +8,20 @@ import {
   ensureQuestionAssignmentsForSections,
 } from '../services/questionAssignmentService.js';
 import { requireActiveProgramByRef } from '../services/programLookup.js';
+import { ensureParticipationAndNotify } from '../services/participationService.js';
+import {
+  buildCertificatePdfForUserProgram,
+  getCertificateForUserProgram,
+  issueCertificateIfProgramComplete,
+  toPublicCertificate,
+} from '../services/certificateService.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { httpError } from '../utils/httpError.js';
+import {
+  assertProgramOpen,
+  buildSchedulePayload,
+  mysqlDateTimeToIso,
+} from '../utils/programSchedule.js';
 import { buildPagination, escapeLike } from '../utils/sql.js';
 import {
   clampReportedWatchTime,
@@ -102,8 +114,11 @@ async function loadVideoProgressMap(userId, sectionIds) {
   return map;
 }
 
-async function assertSectionBelongsToProgram(programRef, sectionId) {
+async function assertSectionBelongsToProgram(programRef, sectionId, { requireOpen = false } = {}) {
   const program = await requireActiveProgramByRef(programRef);
+  if (requireOpen) {
+    assertProgramOpen(program);
+  }
   const [rows] = await pool.query(
     `SELECT ps.id
      FROM program_sections ps
@@ -119,22 +134,48 @@ async function assertSectionBelongsToProgram(programRef, sectionId) {
   return program;
 }
 
+function mapPublicProgramRow(row) {
+  const schedule = buildSchedulePayload(row.starts_at, row.ends_at);
+  return {
+    id: row.id,
+    slug: row.slug,
+    headingEn: row.heading_en,
+    headingHi: row.heading_hi,
+    headingMr: row.heading_mr,
+    sectionCount: Number(row.section_count || 0),
+    startsAt: schedule.startsAt,
+    endsAt: schedule.endsAt,
+    startsOn: schedule.startsOn,
+    endsOn: schedule.endsOn,
+    scheduleStatus: schedule.scheduleStatus,
+    isOpen: schedule.isOpen,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export const listPublicPrograms = asyncHandler(async (req, res) => {
   const search = String(req.query.search || '').trim().slice(0, 220);
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+  const openOnly = String(req.query.openOnly || '') === '1' || String(req.query.openOnly || '') === 'true';
   const like = `%${escapeLike(search)}%`;
+
+  const scheduleFilter = openOnly
+    ? `AND p.starts_at <= UTC_TIMESTAMP() AND p.ends_at >= UTC_TIMESTAMP()`
+    : '';
 
   const [countRows] = await pool.query(
     `SELECT COUNT(*) AS total
-     FROM programs
-     WHERE is_active = 1
+     FROM programs p
+     WHERE p.is_active = 1
+       ${scheduleFilter}
        AND (
          :search = ''
-         OR heading_en LIKE :like ESCAPE '\\\\'
-         OR heading_hi LIKE :like ESCAPE '\\\\'
-         OR heading_mr LIKE :like ESCAPE '\\\\'
-         OR slug LIKE :like ESCAPE '\\\\'
+         OR p.heading_en LIKE :like ESCAPE '\\\\'
+         OR p.heading_hi LIKE :like ESCAPE '\\\\'
+         OR p.heading_mr LIKE :like ESCAPE '\\\\'
+         OR p.slug LIKE :like ESCAPE '\\\\'
        )`,
     { search, like }
   );
@@ -143,7 +184,8 @@ export const listPublicPrograms = asyncHandler(async (req, res) => {
   const pagination = buildPagination({ page, limit, total });
 
   const [rows] = await pool.query(
-    `SELECT p.id, p.slug, p.heading_en, p.heading_hi, p.heading_mr, p.created_at, p.updated_at,
+    `SELECT p.id, p.slug, p.heading_en, p.heading_hi, p.heading_mr,
+            p.starts_at, p.ends_at, p.created_at, p.updated_at,
             (
               SELECT COUNT(*)
               FROM program_sections ps
@@ -151,6 +193,7 @@ export const listPublicPrograms = asyncHandler(async (req, res) => {
             ) AS section_count
      FROM programs p
      WHERE p.is_active = 1
+       ${scheduleFilter}
        AND (
          :search = ''
          OR p.heading_en LIKE :like ESCAPE '\\\\'
@@ -158,24 +201,22 @@ export const listPublicPrograms = asyncHandler(async (req, res) => {
          OR p.heading_mr LIKE :like ESCAPE '\\\\'
          OR p.slug LIKE :like ESCAPE '\\\\'
        )
-     ORDER BY p.updated_at DESC, p.id DESC
+     ORDER BY
+       CASE
+         WHEN p.starts_at <= UTC_TIMESTAMP() AND p.ends_at >= UTC_TIMESTAMP() THEN 0
+         WHEN p.starts_at > UTC_TIMESTAMP() THEN 1
+         ELSE 2
+       END,
+       p.starts_at ASC,
+       p.id DESC
      LIMIT ${pagination.limit} OFFSET ${pagination.offset}`,
     { search, like }
   );
 
-  res.set('Cache-Control', 'public, max-age=30');
+  res.set('Cache-Control', 'public, max-age=15');
   res.json({
     success: true,
-    data: rows.map((row) => ({
-      id: row.id,
-      slug: row.slug,
-      headingEn: row.heading_en,
-      headingHi: row.heading_hi,
-      headingMr: row.heading_mr,
-      sectionCount: Number(row.section_count || 0),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    })),
+    data: rows.map(mapPublicProgramRow),
     pagination: {
       page: pagination.page,
       limit: pagination.limit,
@@ -189,9 +230,41 @@ export const listPublicPrograms = asyncHandler(async (req, res) => {
 
 export const getPublicProgram = asyncHandler(async (req, res) => {
   const { id } = req.validated.params;
+  const program = await requireActiveProgramByRef(id);
+  const schedule = assertProgramOpen(program);
   const tree = await loadProgramTree(id, { includeCorrect: false });
   tree.sections = filterSectionsWithQuestions(tree.sections);
   const userId = req.user.id;
+
+  // First open of an open programme = participation; email candidate once (non-blocking).
+  ensureParticipationAndNotify({
+    userId,
+    programId: program.id,
+    programSlug: program.slug || tree.slug,
+    programHeading: program.heading_en || tree.headingEn,
+    startsAt: program.starts_at,
+    endsAt: program.ends_at,
+    userEmail: req.user.email,
+    firstName: req.user.firstName,
+  }).catch((error) => {
+    console.error('[participation]', error?.message || error);
+  });
+
+  // Backfill certificate + retry email if a prior SMTP send failed.
+  const certificateResult = await issueCertificateIfProgramComplete({
+    userId,
+    program,
+    programSlug: program.slug || tree.slug,
+    sendEmail: true,
+  }).catch((error) => {
+    console.error('[certificate]', error?.message || error);
+    return {
+      issued: false,
+      newlyIssued: false,
+      emailed: false,
+      certificate: null,
+    };
+  });
 
   const assignmentBySection = await ensureQuestionAssignmentsForSections({
     userId,
@@ -235,11 +308,23 @@ export const getPublicProgram = asyncHandler(async (req, res) => {
     };
   });
 
+  const existingCertificate =
+    certificateResult?.certificate ||
+    (await getCertificateForUserProgram(userId, program.id).catch(() => null));
+
   res.set('Cache-Control', 'private, no-store');
   res.json({
     success: true,
     data: {
       ...tree,
+      startsAt: schedule.startsAt || mysqlDateTimeToIso(program.starts_at),
+      endsAt: schedule.endsAt || mysqlDateTimeToIso(program.ends_at),
+      startsOn: schedule.startsOn,
+      endsOn: schedule.endsOn,
+      scheduleStatus: schedule.scheduleStatus,
+      isOpen: schedule.isOpen,
+      programComplete: Boolean(existingCertificate),
+      certificate: toPublicCertificate(existingCertificate),
       sections,
     },
   });
@@ -250,7 +335,7 @@ export const reportSectionVideoProgress = asyncHandler(async (req, res) => {
   const { currentTime, duration, ended } = req.validated.body;
   const userId = req.user.id;
 
-  await assertSectionBelongsToProgram(programId, sectionId);
+  await assertSectionBelongsToProgram(programId, sectionId, { requireOpen: true });
 
   const [existingRows] = await pool.query(
     `SELECT id, max_watched_seconds, duration_seconds, is_completed, completed_at
@@ -351,6 +436,9 @@ export const submitPublicSection = asyncHandler(async (req, res) => {
   const { programId, sectionId } = req.validated.params;
   const { answers } = req.validated.body;
   const userId = req.user.id;
+
+  const program = await requireActiveProgramByRef(programId);
+  assertProgramOpen(program);
 
   const tree = await loadProgramTree(programId, { includeCorrect: true });
   const section = tree.sections.find((item) => item.id === sectionId);
@@ -491,9 +579,35 @@ export const submitPublicSection = asyncHandler(async (req, res) => {
     connection.release();
   }
 
+  const certificateResult = await issueCertificateIfProgramComplete({
+    userId,
+    program,
+    programSlug: program.slug,
+    sendEmail: true,
+  }).catch((error) => {
+    console.error('[certificate]', error?.message || error);
+    return {
+      issued: false,
+      newlyIssued: false,
+      emailed: false,
+      certificate: null,
+    };
+  });
+
+  let message = 'Section submitted successfully';
+  if (certificateResult.newlyIssued && certificateResult.emailed) {
+    message =
+      'Section submitted successfully. Your Certificate of Participation has been emailed to you.';
+  } else if (certificateResult.newlyIssued && !certificateResult.emailed) {
+    message =
+      'Section submitted successfully. Certificate issued — email delivery will be retried shortly.';
+  } else if (certificateResult.issued && certificateResult.emailed && !certificateResult.newlyIssued) {
+    message = 'Section submitted successfully';
+  }
+
   res.json({
     success: true,
-    message: 'Section submitted successfully',
+    message,
     data: {
       sectionId,
       correctCount,
@@ -503,6 +617,64 @@ export const submitPublicSection = asyncHandler(async (req, res) => {
         optionId: item.optionId,
         isCorrect: item.isCorrect,
       })),
+      programComplete: Boolean(certificateResult.issued),
+      certificateNewlyIssued: Boolean(certificateResult.newlyIssued),
+      certificateEmailed: Boolean(certificateResult.emailed),
+      certificate: toPublicCertificate(certificateResult.certificate),
     },
   });
+});
+
+export const getPublicProgramCertificate = asyncHandler(async (req, res) => {
+  const { id } = req.validated.params;
+  const program = await requireActiveProgramByRef(id);
+  const userId = req.user.id;
+
+  // Attempt issue for students who finished before this feature shipped.
+  const result = await issueCertificateIfProgramComplete({
+    userId,
+    program,
+    programSlug: program.slug,
+    sendEmail: false,
+  });
+
+  const certificate =
+    result.certificate || (await getCertificateForUserProgram(userId, program.id));
+  if (!certificate) {
+    throw httpError(
+      'Certificate is not available yet. Complete all sections of the programme first.',
+      404,
+      [{ field: 'certificate', message: 'Complete all sections to unlock your certificate' }]
+    );
+  }
+
+  res.set('Cache-Control', 'private, no-store');
+  res.json({
+    success: true,
+    data: toPublicCertificate(certificate),
+  });
+});
+
+export const downloadPublicProgramCertificate = asyncHandler(async (req, res) => {
+  const { id } = req.validated.params;
+  const program = await requireActiveProgramByRef(id);
+  const userId = req.user.id;
+
+  await issueCertificateIfProgramComplete({
+    userId,
+    program,
+    programSlug: program.slug,
+    sendEmail: false,
+  });
+
+  const { certificate, pdf } = await buildCertificatePdfForUserProgram(userId, program.id);
+  const filename = `Bharat-Garv-Certificate-${certificate.certificateCode}.pdf`;
+
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Length': pdf.length,
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Cache-Control': 'private, no-store',
+  });
+  res.send(pdf);
 });

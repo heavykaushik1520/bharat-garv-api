@@ -3,6 +3,12 @@ import pool from '../config/db.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { signAccessToken } from '../utils/jwt.js';
 import { mapPublicUser, PUBLIC_USER_SELECT } from '../utils/userMapper.js';
+import {
+  requestPasswordReset,
+  resetPasswordWithToken,
+} from '../services/passwordResetService.js';
+import { queueAdminRegistrationEmail } from '../services/registrationNotifyService.js';
+import { formatSchoolLabel } from '../utils/schoolLabel.js';
 
 const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 12;
 
@@ -55,7 +61,7 @@ export const signup = asyncHandler(async (req, res) => {
     await connection.beginTransaction();
 
     const [schools] = await connection.query(
-      `SELECT id, name
+      `SELECT id, name, ward
        FROM schools
        WHERE id = :schoolId AND is_active = 1
        LIMIT 1`,
@@ -68,6 +74,7 @@ export const signup = asyncHandler(async (req, res) => {
       ]);
     }
 
+    const schoolName = formatSchoolLabel(schools[0]);
     const encryptedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const [result] = await connection.query(
@@ -123,6 +130,19 @@ export const signup = asyncHandler(async (req, res) => {
     await connection.commit();
 
     const user = mapPublicUser(rows[0]);
+    queueAdminRegistrationEmail({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
+      schoolName,
+      standard: user.standard,
+      division: user.division,
+      rollNumber: user.rollNumber,
+      preferredLanguage: user.preferredLanguage,
+    });
+
     const auth = issueAuthResponse(user, 'Account created successfully', 201);
     res.status(auth.status).json(auth.body);
   } catch (error) {
@@ -131,6 +151,20 @@ export const signup = asyncHandler(async (req, res) => {
   } finally {
     connection.release();
   }
+});
+
+export const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.validated.body;
+  const result = await requestPasswordReset(email, req);
+  res.set('Cache-Control', 'no-store');
+  res.json(result);
+});
+
+export const resetPassword = asyncHandler(async (req, res) => {
+  const { token, newPassword } = req.validated.body;
+  const result = await resetPasswordWithToken({ token, newPassword });
+  res.set('Cache-Control', 'no-store');
+  res.json(result);
 });
 
 export const login = asyncHandler(async (req, res) => {

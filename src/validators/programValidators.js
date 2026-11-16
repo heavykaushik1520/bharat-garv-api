@@ -30,15 +30,51 @@ const programSlugBodySchema = z.preprocess(
     .optional()
 );
 
+const dateOnlyBodySchema = (fieldLabel) =>
+  z
+    .string({ required_error: `${fieldLabel} is required` })
+    .trim()
+    .min(1, `${fieldLabel} is required`)
+    .max(40, `${fieldLabel} is invalid`)
+    .refine((value) => {
+      const datePart = (value.includes('T') ? value.slice(0, 10) : value.slice(0, 10)).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return false;
+      const [y, m, d] = datePart.split('-').map(Number);
+      const probe = new Date(Date.UTC(y, m - 1, d));
+      return (
+        !Number.isNaN(probe.getTime()) &&
+        probe.getUTCFullYear() === y &&
+        probe.getUTCMonth() === m - 1 &&
+        probe.getUTCDate() === d
+      );
+    }, `${fieldLabel} must be a valid date`);
+
+const programBodyBase = {
+  headingEn: headingSchema('English heading'),
+  headingHi: headingSchema('Hindi heading'),
+  headingMr: headingSchema('Marathi heading'),
+  slug: programSlugBodySchema,
+  startsAt: dateOnlyBodySchema('Start date'),
+  endsAt: dateOnlyBodySchema('End date'),
+};
+
+function refineScheduleWindow(body, ctx) {
+  const startDay = (body.startsAt.includes('T') ? body.startsAt : body.startsAt).slice(0, 10);
+  const endDay = (body.endsAt.includes('T') ? body.endsAt : body.endsAt).slice(0, 10);
+  if (endDay < startDay) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endsAt'],
+      message: 'End date must be on or after start date',
+    });
+  }
+}
+
 export const createProgramSchema = z.object({
   body: z
-    .object({
-      headingEn: headingSchema('English heading'),
-      headingHi: headingSchema('Hindi heading'),
-      headingMr: headingSchema('Marathi heading'),
-      slug: programSlugBodySchema,
-    })
-    .strict(),
+    .object(programBodyBase)
+    .strict()
+    .superRefine(refineScheduleWindow),
 });
 
 export const updateProgramSchema = z.object({
@@ -46,13 +82,9 @@ export const updateProgramSchema = z.object({
     id: programRefParam,
   }),
   body: z
-    .object({
-      headingEn: headingSchema('English heading'),
-      headingHi: headingSchema('Hindi heading'),
-      headingMr: headingSchema('Marathi heading'),
-      slug: programSlugBodySchema,
-    })
-    .strict(),
+    .object(programBodyBase)
+    .strict()
+    .superRefine(refineScheduleWindow),
 });
 
 export const programIdParamSchema = z.object({

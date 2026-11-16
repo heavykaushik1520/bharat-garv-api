@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import {
+  downloadPublicProgramCertificate,
   getPublicProgram,
+  getPublicProgramCertificate,
   listPublicPrograms,
   reportSectionVideoProgress,
   submitPublicSection,
@@ -52,6 +54,20 @@ const videoProgressLimiter = rateLimit({
 // Catalog is public so the competition page can show participate cards.
 // Program detail, video progress, and quiz submit stay authenticated.
 router.get('/', readLimiter, listPublicPrograms);
+router.get(
+  '/:id/certificate/download',
+  requireAuth,
+  readLimiter,
+  validate(publicProgramIdSchema),
+  downloadPublicProgramCertificate
+);
+router.get(
+  '/:id/certificate',
+  requireAuth,
+  readLimiter,
+  validate(publicProgramIdSchema),
+  getPublicProgramCertificate
+);
 router.get('/:id', requireAuth, readLimiter, validate(publicProgramIdSchema), getPublicProgram);
 router.post(
   '/:programId/sections/:sectionId/video-progress',

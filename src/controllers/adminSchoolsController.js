@@ -1,12 +1,25 @@
 import pool from '../config/db.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { httpError } from '../utils/httpError.js';
 import { buildPagination, escapeLike } from '../utils/sql.js';
+import {
+  buildSchoolImportTemplate,
+  importSchools,
+  parseSchoolImportFile,
+} from '../services/schoolImportService.js';
 
-function httpError(message, statusCode = 400, errors = []) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  error.errors = errors;
-  return error;
+function mapSchoolRow(row) {
+  return {
+    id: Number(row.id),
+    name: row.name,
+    ward: row.ward || '',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    registeredStudents:
+      row.registeredStudents == null ? undefined : Number(row.registeredStudents || 0),
+    participantStudents:
+      row.participantStudents == null ? undefined : Number(row.participantStudents || 0),
+  };
 }
 
 export const listAdminSchools = asyncHandler(async (req, res) => {
@@ -17,18 +30,22 @@ export const listAdminSchools = asyncHandler(async (req, res) => {
     `SELECT COUNT(*) AS total
      FROM schools
      WHERE is_active = 1
-       AND (:search = '' OR name LIKE :like ESCAPE '\\\\')`,
+       AND (
+         :search = ''
+         OR name LIKE :like ESCAPE '\\\\'
+         OR ward LIKE :like ESCAPE '\\\\'
+       )`,
     { search, like }
   );
 
   const total = Number(countRows[0]?.total || 0);
   const pagination = buildPagination({ page, limit, total });
 
-  // LIMIT/OFFSET must be inlined integers (already validated) — mysql2 named binds are unreliable here
   const [rows] = await pool.query(
     `SELECT
        s.id,
        s.name,
+       s.ward,
        s.created_at,
        s.updated_at,
        (
@@ -47,27 +64,19 @@ export const listAdminSchools = asyncHandler(async (req, res) => {
        ) AS participantStudents
      FROM schools s
      WHERE s.is_active = 1
-       AND (:search = '' OR s.name LIKE :like ESCAPE '\\\\')
-     ORDER BY s.name ASC
+       AND (
+         :search = ''
+         OR s.name LIKE :like ESCAPE '\\\\'
+         OR s.ward LIKE :like ESCAPE '\\\\'
+       )
+     ORDER BY s.name ASC, s.ward ASC
      LIMIT ${pagination.limit} OFFSET ${pagination.offset}`,
-    {
-      search,
-      like,
-    }
+    { search, like }
   );
-
-  const data = rows.map((row) => ({
-    id: Number(row.id),
-    name: row.name,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    registeredStudents: Number(row.registeredStudents || 0),
-    participantStudents: Number(row.participantStudents || 0),
-  }));
 
   res.json({
     success: true,
-    data,
+    data: rows.map(mapSchoolRow),
     pagination: {
       page: pagination.page,
       limit: pagination.limit,
@@ -83,7 +92,7 @@ export const getAdminSchool = asyncHandler(async (req, res) => {
   const { id } = req.validated.params;
 
   const [rows] = await pool.query(
-    `SELECT id, name, created_at, updated_at
+    `SELECT id, name, ward, created_at, updated_at
      FROM schools
      WHERE id = :id AND is_active = 1
      LIMIT 1`,
@@ -96,42 +105,43 @@ export const getAdminSchool = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    data: rows[0],
+    data: mapSchoolRow(rows[0]),
   });
 });
 
 export const createAdminSchool = asyncHandler(async (req, res) => {
-  const { name } = req.validated.body;
+  const { name, ward } = req.validated.body;
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
     const [existing] = await connection.query(
-      `SELECT id, name, is_active
+      `SELECT id, name, ward, is_active
        FROM schools
-       WHERE name = :name
+       WHERE name = :name AND ward = :ward
        LIMIT 1
        FOR UPDATE`,
-      { name }
+      { name, ward }
     );
 
     if (existing.length && existing[0].is_active) {
-      throw httpError('A school with this name already exists', 409, [
-        { field: 'name', message: 'A school with this name already exists' },
+      throw httpError('A school with this name and ward already exists', 409, [
+        { field: 'name', message: 'A school with this name and ward already exists' },
+        { field: 'ward', message: 'A school with this name and ward already exists' },
       ]);
     }
 
     if (existing.length && !existing[0].is_active) {
       await connection.query(
         `UPDATE schools
-         SET is_active = 1, city = NULL
+         SET is_active = 1
          WHERE id = :id`,
         { id: existing[0].id }
       );
 
       const [restored] = await connection.query(
-        `SELECT id, name, created_at, updated_at
+        `SELECT id, name, ward, created_at, updated_at
          FROM schools
          WHERE id = :id
          LIMIT 1`,
@@ -143,18 +153,18 @@ export const createAdminSchool = asyncHandler(async (req, res) => {
       return res.status(200).json({
         success: true,
         message: 'School restored successfully',
-        data: restored[0],
+        data: mapSchoolRow(restored[0]),
       });
     }
 
     const [result] = await connection.query(
-      `INSERT INTO schools (name, city, is_active)
-       VALUES (:name, NULL, 1)`,
-      { name }
+      `INSERT INTO schools (name, ward, city, is_active)
+       VALUES (:name, :ward, NULL, 1)`,
+      { name, ward }
     );
 
     const [created] = await connection.query(
-      `SELECT id, name, created_at, updated_at
+      `SELECT id, name, ward, created_at, updated_at
        FROM schools
        WHERE id = :id
        LIMIT 1`,
@@ -166,7 +176,7 @@ export const createAdminSchool = asyncHandler(async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'School created successfully',
-      data: created[0],
+      data: mapSchoolRow(created[0]),
     });
   } catch (error) {
     await connection.rollback();
@@ -178,14 +188,14 @@ export const createAdminSchool = asyncHandler(async (req, res) => {
 
 export const updateAdminSchool = asyncHandler(async (req, res) => {
   const { id } = req.validated.params;
-  const { name } = req.validated.body;
+  const { name, ward } = req.validated.body;
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
     const [current] = await connection.query(
-      `SELECT id, name
+      `SELECT id, name, ward
        FROM schools
        WHERE id = :id AND is_active = 1
        LIMIT 1
@@ -200,26 +210,27 @@ export const updateAdminSchool = asyncHandler(async (req, res) => {
     const [duplicate] = await connection.query(
       `SELECT id
        FROM schools
-       WHERE name = :name AND id <> :id
+       WHERE name = :name AND ward = :ward AND id <> :id
        LIMIT 1`,
-      { name, id }
+      { name, ward, id }
     );
 
     if (duplicate.length) {
-      throw httpError('A school with this name already exists', 409, [
-        { field: 'name', message: 'A school with this name already exists' },
+      throw httpError('A school with this name and ward already exists', 409, [
+        { field: 'name', message: 'A school with this name and ward already exists' },
+        { field: 'ward', message: 'A school with this name and ward already exists' },
       ]);
     }
 
     await connection.query(
       `UPDATE schools
-       SET name = :name
+       SET name = :name, ward = :ward
        WHERE id = :id AND is_active = 1`,
-      { name, id }
+      { name, ward, id }
     );
 
     const [updated] = await connection.query(
-      `SELECT id, name, created_at, updated_at
+      `SELECT id, name, ward, created_at, updated_at
        FROM schools
        WHERE id = :id
        LIMIT 1`,
@@ -231,7 +242,7 @@ export const updateAdminSchool = asyncHandler(async (req, res) => {
     res.json({
       success: true,
       message: 'School updated successfully',
-      data: updated[0],
+      data: mapSchoolRow(updated[0]),
     });
   } catch (error) {
     await connection.rollback();
@@ -249,7 +260,7 @@ export const deleteAdminSchool = asyncHandler(async (req, res) => {
     await connection.beginTransaction();
 
     const [current] = await connection.query(
-      `SELECT id, name
+      `SELECT id, name, ward
        FROM schools
        WHERE id = :id AND is_active = 1
        LIMIT 1
@@ -301,4 +312,61 @@ export const deleteAdminSchool = asyncHandler(async (req, res) => {
   } finally {
     connection.release();
   }
+});
+
+export const downloadSchoolImportTemplate = asyncHandler(async (req, res) => {
+  const { format } = req.validated.query;
+  const file = await buildSchoolImportTemplate(format);
+
+  res.set({
+    'Content-Type': file.contentType,
+    'Content-Length': file.buffer.length,
+    'Content-Disposition': `attachment; filename="${file.filename}"`,
+    'Cache-Control': 'no-store',
+  });
+  res.send(file.buffer);
+});
+
+export const importAdminSchools = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    throw httpError('Upload file is required', 400, [
+      { field: 'file', message: 'Upload an .xlsx or .csv file' },
+    ]);
+  }
+
+  const { valid, invalid } = await parseSchoolImportFile(req.file);
+
+  if (!valid.length && invalid.length) {
+    throw httpError('No valid school rows found in the file', 400, [
+      { field: 'file', message: 'Fix the row errors and upload again' },
+      ...invalid.slice(0, 20).map((item) => ({
+        field: `row.${item.rowNumber}`,
+        message: `Row ${item.rowNumber}: ${item.message}`,
+      })),
+    ]);
+  }
+
+  if (!valid.length) {
+    throw httpError('No school rows to import', 400, [
+      { field: 'file', message: 'Add at least one school row' },
+    ]);
+  }
+
+  const result = await importSchools(valid);
+
+  res.json({
+    success: true,
+    message: `Import finished: ${result.created} created, ${result.restored} restored, ${result.skippedExisting} already existed, ${invalid.length} invalid rows skipped.`,
+    data: {
+      created: result.created,
+      restored: result.restored,
+      skippedExisting: result.skippedExisting,
+      invalidCount: invalid.length,
+      importedCount: valid.length,
+      errors: invalid.slice(0, 50).map((item) => ({
+        row: item.rowNumber,
+        message: item.message,
+      })),
+    },
+  });
 });

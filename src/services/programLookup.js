@@ -2,7 +2,7 @@ import pool from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
 import { isNumericId, slugify } from '../utils/slug.js';
 
-const PROGRAM_SELECT = `id, slug, heading_en, heading_hi, heading_mr, is_active, created_at, updated_at`;
+const PROGRAM_SELECT = `id, slug, heading_en, heading_hi, heading_mr, starts_at, ends_at, is_active, created_at, updated_at`;
 
 export async function findActiveProgramByRef(ref, connection = pool) {
   const value = String(ref || '').trim();

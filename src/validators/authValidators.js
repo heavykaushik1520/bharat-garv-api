@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const phoneRegex = /^[6-9]\d{9}$/;
 const nameRegex = /^[A-Za-z][A-Za-z .'-]{0,78}[A-Za-z]?$/;
-const divisionRegex = /^[A-Za-z0-9]{1,10}$/;
+const divisionRegex = /^[A-Z]$/;
 const rollRegex = /^\d{1,10}$/;
 
 /** Shared password rules for signup / change-password */
@@ -29,9 +29,14 @@ export const passwordSchema = z
 const emailSchema = z
   .string({ required_error: 'Email is required' })
   .trim()
-  .toLowerCase()
-  .email('Enter a valid email address')
-  .max(191, 'Email is too long');
+  .transform((value) => value.replace(/\s+/g, '').toLowerCase())
+  .pipe(
+    z
+      .string()
+      .min(1, 'Email is required')
+      .email('Enter a valid email address')
+      .max(191, 'Email is too long')
+  );
 
 const phoneSchema = z
   .string({ required_error: 'Phone number is required' })
@@ -76,7 +81,7 @@ const divisionSchema = z
   .string({ required_error: 'Division is required' })
   .trim()
   .toUpperCase()
-  .regex(divisionRegex, 'Enter a valid division (e.g. A, B, C)');
+  .regex(divisionRegex, 'Division must be a single uppercase letter (A–Z)');
 
 const rollNumberSchema = z
   .string({ required_error: 'Roll number is required' })
@@ -91,6 +96,7 @@ const preferredLanguageSchema = z.enum(['en', 'hi', 'mr'], {
 /** Login only checks presence/length — complexity belongs to signup/change-password */
 export const loginPasswordSchema = z
   .string({ required_error: 'Password is required' })
+  .trim()
   .min(1, 'Password is required')
   .max(72, 'Password must be at most 72 characters');
 
@@ -155,4 +161,33 @@ export const updateLanguageSchema = z.object({
       preferredLanguage: preferredLanguageSchema,
     })
     .strict(),
+});
+
+export const forgotPasswordSchema = z.object({
+  body: z
+    .object({
+      email: emailSchema,
+    })
+    .strict(),
+});
+
+export const resetPasswordSchema = z.object({
+  body: z
+    .object({
+      token: z
+        .string({ required_error: 'Reset token is required' })
+        .trim()
+        .min(32, 'This reset link is invalid or has expired')
+        .max(128, 'This reset link is invalid or has expired')
+        .regex(/^[a-fA-F0-9]+$/, 'This reset link is invalid or has expired'),
+      newPassword: passwordSchema,
+      confirmPassword: z
+        .string({ required_error: 'Please confirm your new password' })
+        .min(1, 'Please confirm your new password'),
+    })
+    .strict()
+    .refine((data) => data.newPassword === data.confirmPassword, {
+      message: 'Passwords do not match',
+      path: ['confirmPassword'],
+    }),
 });

@@ -1,21 +1,23 @@
+import 'dotenv/config';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import pool from './config/db.js';
 import { UPLOAD_ROOT, ensureUploadDirs } from './config/uploads.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { requireAdminAuth } from './middleware/adminAuth.js';
 import adminAnalyticsRoutes from './routes/adminAnalytics.js';
+import adminAuthRoutes from './routes/adminAuth.js';
 import adminProgramContentRoutes from './routes/adminProgramContent.js';
 import adminProgramsRoutes from './routes/adminPrograms.js';
 import adminSchoolsRoutes from './routes/adminSchools.js';
 import adminStudentsRoutes from './routes/adminStudents.js';
 import authRoutes from './routes/auth.js';
+import contactRoutes from './routes/contact.js';
 import programsRoutes from './routes/programs.js';
 import schoolsRoutes from './routes/schools.js';
 
-dotenv.config();
 ensureUploadDirs();
 
 const app = express();
@@ -83,13 +85,15 @@ app.get('/api/db-check', async (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/contact', contactRoutes);
 app.use('/api/schools', schoolsRoutes);
 app.use('/api/programs', programsRoutes);
-app.use('/api/admin/analytics', adminAnalyticsRoutes);
-app.use('/api/admin/schools', adminSchoolsRoutes);
-app.use('/api/admin/students', adminStudentsRoutes);
-app.use('/api/admin/programs', adminProgramsRoutes);
-app.use('/api/admin/programs/:programId', adminProgramContentRoutes);
+app.use('/api/admin/auth', adminAuthRoutes);
+app.use('/api/admin/analytics', requireAdminAuth, adminAnalyticsRoutes);
+app.use('/api/admin/schools', requireAdminAuth, adminSchoolsRoutes);
+app.use('/api/admin/students', requireAdminAuth, adminStudentsRoutes);
+app.use('/api/admin/programs', requireAdminAuth, adminProgramsRoutes);
+app.use('/api/admin/programs/:programId', requireAdminAuth, adminProgramContentRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

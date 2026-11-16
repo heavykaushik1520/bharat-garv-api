@@ -36,13 +36,17 @@ export const listSchools = asyncHandler(async (req, res) => {
   const safeLimit = Math.min(50, Math.max(1, Number(limit) || 20));
 
   const [rows] = await pool.query(
-    `SELECT id, name
+    `SELECT id, name, ward
      FROM schools
      WHERE is_active = 1
-       AND name LIKE :like ESCAPE '\\\\'
+       AND (
+         name LIKE :like ESCAPE '\\\\'
+         OR ward LIKE :like ESCAPE '\\\\'
+       )
      ORDER BY
        CASE WHEN name LIKE :prefix ESCAPE '\\\\' THEN 0 ELSE 1 END,
-       name ASC
+       name ASC,
+       ward ASC
      LIMIT ${safeLimit}`,
     {
       like,
@@ -67,7 +71,7 @@ export const getSchool = asyncHandler(async (req, res) => {
   const { id } = req.validated.params;
 
   const [rows] = await pool.query(
-    `SELECT id, name
+    `SELECT id, name, ward
      FROM schools
      WHERE id = :id AND is_active = 1
      LIMIT 1`,

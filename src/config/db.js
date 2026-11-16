@@ -16,7 +16,14 @@ const pool = mysql.createPool({
   keepAliveInitialDelay: 10000,
   namedPlaceholders: true,
   charset: 'utf8mb4',
+  // Interpret MySQL DATETIME/TIMESTAMP as UTC in Node.
   timezone: 'Z',
+});
+
+// Keep MySQL session in UTC so CURRENT_TIMESTAMP / TIMESTAMP reads match
+// timezone: 'Z' (SYSTEM is often IST and was shifting displayed times by +5:30).
+pool.on('connection', (connection) => {
+  connection.query("SET time_zone = '+00:00'");
 });
 
 export default pool;

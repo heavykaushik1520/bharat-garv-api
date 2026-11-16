@@ -86,9 +86,12 @@ export async function errorHandler(error, req, res, _next) {
       field = 'rollNumber';
       friendly =
         'A student with this school, standard, division and roll number already exists';
-    } else if (message.includes('uq_schools_name')) {
+    } else if (
+      message.includes('uq_schools_name_ward') ||
+      message.includes('uq_schools_name')
+    ) {
       field = 'name';
-      friendly = 'A school with this name already exists';
+      friendly = 'A school with this name and ward already exists';
     } else if (message.includes('uq_programs_slug')) {
       field = 'slug';
       friendly = 'A program with this URL slug already exists';

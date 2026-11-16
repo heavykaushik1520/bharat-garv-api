@@ -72,6 +72,8 @@ CREATE TABLE programs (
   heading_en VARCHAR(220) NOT NULL,
   heading_hi VARCHAR(220) NOT NULL,
   heading_mr VARCHAR(220) NOT NULL,
+  starts_at DATETIME NOT NULL,
+  ends_at DATETIME NOT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -79,7 +81,9 @@ CREATE TABLE programs (
   UNIQUE KEY uq_programs_slug (slug),
   KEY idx_programs_active (is_active),
   KEY idx_programs_created_at (created_at),
-  KEY idx_programs_heading_en (heading_en)
+  KEY idx_programs_heading_en (heading_en),
+  KEY idx_programs_schedule (is_active, starts_at, ends_at),
+  CONSTRAINT chk_programs_schedule_window CHECK (ends_at > starts_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Invariant: every active section must have >= 1 active question
@@ -270,13 +274,15 @@ INSERT INTO users (
     3, 7, 'A', '21', 'mr', 1
   );
 
-INSERT INTO programs (id, slug, heading_en, heading_hi, heading_mr, is_active) VALUES
+INSERT INTO programs (id, slug, heading_en, heading_hi, heading_mr, starts_at, ends_at, is_active) VALUES
   (
     1,
     'bharat-garv-quiz-program',
     'Bharat Garv Quiz Program',
     'भारत गर्व क्विज़ कार्यक्रम',
     'भारत गर्व क्विझ कार्यक्रम',
+    UTC_TIMESTAMP(),
+    DATE_ADD(UTC_TIMESTAMP(), INTERVAL 90 DAY),
     1
   ),
   (
@@ -285,6 +291,8 @@ INSERT INTO programs (id, slug, heading_en, heading_hi, heading_mr, is_active) V
     'Ancient Wonders of Mumbai',
     'मुंबई के प्राचीन आश्चर्य',
     'मुंबईचे प्राचीन आश्चर्य',
+    UTC_TIMESTAMP(),
+    DATE_ADD(UTC_TIMESTAMP(), INTERVAL 90 DAY),
     1
   );
 

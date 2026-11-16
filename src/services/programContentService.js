@@ -1,6 +1,7 @@
 import pool from '../config/db.js';
 import { requireActiveProgramByRef } from './programLookup.js';
 import { httpError } from '../utils/httpError.js';
+import { buildSchedulePayload } from '../utils/programSchedule.js';
 import { youtubeEmbedUrl } from '../utils/youtube.js';
 
 export function mapOption(row, { includeCorrect = false } = {}) {
@@ -154,6 +155,7 @@ export async function loadQuestionsForSections(sectionIds, { includeCorrect = fa
 export async function loadProgramTree(programRef, { includeCorrect = false } = {}, connection = pool) {
   const program = await assertActiveProgram(programRef, connection);
   const programId = program.id;
+  const schedule = buildSchedulePayload(program.starts_at, program.ends_at);
 
   const [sectionRows] = await connection.query(
     `SELECT id, program_id, title_en, title_hi, title_mr, subtitle_en, subtitle_hi, subtitle_mr,
@@ -178,6 +180,12 @@ export async function loadProgramTree(programRef, { includeCorrect = false } = {
     headingEn: program.heading_en,
     headingHi: program.heading_hi,
     headingMr: program.heading_mr,
+    startsAt: schedule.startsAt,
+    endsAt: schedule.endsAt,
+    startsOn: schedule.startsOn,
+    endsOn: schedule.endsOn,
+    scheduleStatus: schedule.scheduleStatus,
+    isOpen: schedule.isOpen,
     isActive: Boolean(program.is_active),
     createdAt: program.created_at,
     updatedAt: program.updated_at,

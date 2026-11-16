@@ -7,13 +7,16 @@ USE quiz_db;
 CREATE TABLE IF NOT EXISTS schools (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name VARCHAR(180) NOT NULL,
+  ward VARCHAR(120) NOT NULL DEFAULT '',
   city VARCHAR(100) NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_schools_name (name),
-  KEY idx_schools_active (is_active)
+  UNIQUE KEY uq_schools_name_ward (name, ward),
+  KEY idx_schools_active (is_active),
+  KEY idx_schools_ward (ward),
+  KEY idx_schools_name_active (is_active, name)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -52,16 +55,86 @@ CREATE TABLE IF NOT EXISTS users (
   CONSTRAINT chk_users_standard CHECK (standard BETWEEN 5 AND 9)
 ) ENGINE=InnoDB;
 
-INSERT INTO schools (name, city, is_active) VALUES
-  ('Bharatiya Vidya Bhavan', 'Mumbai', 1),
-  ('Don Bosco High School', 'Mumbai', 1),
-  ('St. Xavier''s High School', 'Mumbai', 1),
-  ('Ryan International School', 'Mumbai', 1),
-  ('Atomic Energy Central School', 'Mumbai', 1),
-  ('Cathedral & John Connon School', 'Mumbai', 1),
-  ('Bombay Scottish School', 'Mumbai', 1),
-  ('Jamnabai Narsee School', 'Mumbai', 1)
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  requested_ip VARCHAR(45) NULL,
+  user_agent VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_password_reset_token_hash (token_hash),
+  KEY idx_password_reset_user_active (user_id, used_at, expires_at),
+  KEY idx_password_reset_expires (expires_at),
+  CONSTRAINT fk_password_reset_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS admins (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  email VARCHAR(191) NOT NULL,
+  password VARCHAR(72) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  last_login_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_admins_email (email),
+  KEY idx_admins_active (is_active),
+  KEY idx_admins_active_created (is_active, created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS admin_password_reset_tokens (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  admin_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  requested_ip VARCHAR(45) NULL,
+  user_agent VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_admin_password_reset_token_hash (token_hash),
+  KEY idx_admin_password_reset_admin_active (admin_id, used_at, expires_at),
+  KEY idx_admin_password_reset_expires (expires_at),
+  CONSTRAINT fk_admin_password_reset_admin
+    FOREIGN KEY (admin_id) REFERENCES admins (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS mail_log (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  mail_type ENUM('password_reset', 'registration_admin', 'participation', 'certificate', 'contact', 'admin_password_reset') NOT NULL,
+  to_email VARCHAR(191) NOT NULL,
+  subject VARCHAR(255) NOT NULL,
+  status ENUM('queued', 'sent', 'failed') NOT NULL DEFAULT 'queued',
+  error_message VARCHAR(500) NULL,
+  meta_json JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sent_at DATETIME NULL,
+  PRIMARY KEY (id),
+  KEY idx_mail_log_type_created (mail_type, created_at),
+  KEY idx_mail_log_status_created (status, created_at),
+  KEY idx_mail_log_to_email (to_email)
+) ENGINE=InnoDB;
+
+INSERT INTO schools (name, ward, city, is_active) VALUES
+  ('Bharatiya Vidya Bhavan', 'Ward A', 'Mumbai', 1),
+  ('Don Bosco High School', 'Ward A', 'Mumbai', 1),
+  ('St. Xavier''s High School', 'Ward B', 'Mumbai', 1),
+  ('Ryan International School', 'Ward B', 'Mumbai', 1),
+  ('Atomic Energy Central School', 'Ward C', 'Mumbai', 1),
+  ('Cathedral & John Connon School', 'Ward C', 'Mumbai', 1),
+  ('Bombay Scottish School', 'Ward D', 'Mumbai', 1),
+  ('Jamnabai Narsee School', 'Ward D', 'Mumbai', 1)
 ON DUPLICATE KEY UPDATE
+  ward = VALUES(ward),
   city = VALUES(city),
   is_active = VALUES(is_active);
 
@@ -71,6 +144,8 @@ CREATE TABLE IF NOT EXISTS programs (
   heading_en VARCHAR(220) NOT NULL,
   heading_hi VARCHAR(220) NOT NULL,
   heading_mr VARCHAR(220) NOT NULL,
+  starts_at DATETIME NOT NULL,
+  ends_at DATETIME NOT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -78,7 +153,60 @@ CREATE TABLE IF NOT EXISTS programs (
   UNIQUE KEY uq_programs_slug (slug),
   KEY idx_programs_active (is_active),
   KEY idx_programs_created_at (created_at),
-  KEY idx_programs_heading_en (heading_en)
+  KEY idx_programs_heading_en (heading_en),
+  KEY idx_programs_schedule (is_active, starts_at, ends_at),
+  CONSTRAINT chk_programs_schedule_window CHECK (ends_at > starts_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS program_participations (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  program_id INT UNSIGNED NOT NULL,
+  participated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  welcome_mail_status ENUM('pending', 'sending', 'sent', 'failed', 'skipped') NOT NULL DEFAULT 'pending',
+  welcome_mail_sent_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_program_participations_user_program (user_id, program_id),
+  KEY idx_program_participations_program (program_id, participated_at),
+  KEY idx_program_participations_mail (welcome_mail_status, participated_at),
+  CONSTRAINT fk_program_participations_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  CONSTRAINT fk_program_participations_program
+    FOREIGN KEY (program_id) REFERENCES programs (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS program_certificates (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  program_id INT UNSIGNED NOT NULL,
+  certificate_code VARCHAR(32) NOT NULL,
+  full_name VARCHAR(180) NOT NULL,
+  school_name VARCHAR(180) NOT NULL,
+  division CHAR(1) NOT NULL,
+  roll_number VARCHAR(20) NOT NULL,
+  standard TINYINT UNSIGNED NOT NULL,
+  program_heading VARCHAR(220) NOT NULL,
+  issued_at DATETIME NOT NULL,
+  emailed_at DATETIME NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_program_certificates_user_program (user_id, program_id),
+  UNIQUE KEY uq_program_certificates_code (certificate_code),
+  KEY idx_program_certificates_program_issued (program_id, issued_at),
+  KEY idx_program_certificates_issued (issued_at),
+  KEY idx_program_certificates_emailed (emailed_at),
+  CONSTRAINT fk_program_certificates_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  CONSTRAINT fk_program_certificates_program
+    FOREIGN KEY (program_id) REFERENCES programs (id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- Invariant: every active section must have >= 1 active question

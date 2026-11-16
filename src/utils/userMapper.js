@@ -1,6 +1,11 @@
+import { formatSchoolLabel } from './schoolLabel.js';
+
 /** Public student shape — never includes password fields */
 export function mapPublicUser(row) {
   if (!row) return null;
+
+  const schoolWard = row.school_ward || '';
+  const schoolNameRaw = row.school_name || null;
 
   return {
     id: row.id,
@@ -11,7 +16,11 @@ export function mapPublicUser(row) {
     lastName: row.last_name,
     fullName: `${row.first_name} ${row.last_name}`.trim(),
     schoolId: row.school_id,
-    schoolName: row.school_name || null,
+    schoolName: schoolNameRaw
+      ? formatSchoolLabel({ name: schoolNameRaw, ward: schoolWard })
+      : null,
+    schoolNameRaw,
+    schoolWard: schoolWard || null,
     standard: row.standard,
     division: row.division,
     rollNumber: row.roll_number,
@@ -29,6 +38,7 @@ export const PUBLIC_USER_SELECT = `
   u.last_name,
   u.school_id,
   s.name AS school_name,
+  s.ward AS school_ward,
   u.standard,
   u.division,
   u.roll_number,
