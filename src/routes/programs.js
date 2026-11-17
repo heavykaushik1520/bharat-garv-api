@@ -51,20 +51,31 @@ const videoProgressLimiter = rateLimit({
   },
 });
 
+const certificateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many certificate requests. Please try again shortly.',
+  },
+});
+
 // Catalog is public so the competition page can show participate cards.
 // Program detail, video progress, and quiz submit stay authenticated.
 router.get('/', readLimiter, listPublicPrograms);
 router.get(
   '/:id/certificate/download',
   requireAuth,
-  readLimiter,
+  certificateLimiter,
   validate(publicProgramIdSchema),
   downloadPublicProgramCertificate
 );
 router.get(
   '/:id/certificate',
   requireAuth,
-  readLimiter,
+  certificateLimiter,
   validate(publicProgramIdSchema),
   getPublicProgramCertificate
 );

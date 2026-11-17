@@ -117,18 +117,32 @@ async function loadRecipientSnapshot(userId, program, connection = pool) {
     throw httpError('Account not found or deactivated', 404);
   }
 
-  const schoolName = user.school_ward
-    ? `${user.school_name} · ${user.school_ward}`
-    : user.school_name;
+  const schoolName = String(user.school_ward || '').trim()
+    ? `${String(user.school_name).trim()}, ${String(user.school_ward).trim()}`
+    : String(user.school_name || '').trim();
+
+  const fullName = `${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!fullName || !schoolName || !user.email) {
+    throw httpError('Student profile is incomplete for certificate issuance', 422);
+  }
 
   return {
-    email: user.email,
-    fullName: `${user.first_name} ${user.last_name}`.trim(),
+    email: String(user.email).trim().toLowerCase(),
+    fullName,
     schoolName,
-    division: String(user.division || '').toUpperCase().slice(0, 1) || 'A',
-    rollNumber: String(user.roll_number || ''),
+    division: String(user.division || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z]/g, '')
+      .slice(0, 1) || 'A',
+    rollNumber: String(user.roll_number || '').trim().slice(0, 20),
     standard: Number(user.standard),
-    programHeading: program.heading_en || program.headingEn || 'Bharat Garv Competition',
+    programHeading: String(program.heading_en || program.headingEn || 'Bharat Garv Competition')
+      .trim()
+      .slice(0, 220),
   };
 }
 
@@ -379,13 +393,18 @@ export async function buildCertificatePdfForUserProgram(userId, programId) {
   return { certificate, pdf };
 }
 
-/** Public payload for students — email is the delivery channel, not the website. */
+/** Public payload for students (safe fields only). */
 export function toPublicCertificate(certificate) {
   if (!certificate) return null;
   return {
     issued: true,
     emailed: Boolean(certificate.emailedAt),
     certificateCode: certificate.certificateCode,
+    fullName: certificate.fullName,
+    schoolName: certificate.schoolName,
+    division: certificate.division,
+    rollNumber: certificate.rollNumber,
+    standard: Number(certificate.standard),
     programHeading: certificate.programHeading,
     issuedAt: certificate.issuedAt,
     emailedAt: certificate.emailedAt || null,
