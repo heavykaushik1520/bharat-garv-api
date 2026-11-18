@@ -11,13 +11,11 @@ function httpError(message, statusCode = 400) {
 /**
  * Public school lookup for signup/profile.
  * Never returns the full catalog — search + capped limit only.
- * Callers should require the user to type before searching at scale.
  */
 export const listSchools = asyncHandler(async (req, res) => {
   const { search, limit } = req.validated.query;
   const trimmed = String(search || '').trim();
 
-  // Avoid dumping thousands of rows when search is empty
   if (trimmed.length < 2) {
     res.set('Cache-Control', 'public, max-age=15');
     return res.json({
@@ -36,17 +34,19 @@ export const listSchools = asyncHandler(async (req, res) => {
   const safeLimit = Math.min(50, Math.max(1, Number(limit) || 20));
 
   const [rows] = await pool.query(
-    `SELECT id, name, ward
+    `SELECT id, name, ward, medium
      FROM schools
      WHERE is_active = 1
        AND (
          name LIKE :like ESCAPE '\\\\'
          OR ward LIKE :like ESCAPE '\\\\'
+         OR medium LIKE :like ESCAPE '\\\\'
        )
      ORDER BY
        CASE WHEN name LIKE :prefix ESCAPE '\\\\' THEN 0 ELSE 1 END,
        name ASC,
-       ward ASC
+       ward ASC,
+       medium ASC
      LIMIT ${safeLimit}`,
     {
       like,
@@ -71,7 +71,7 @@ export const getSchool = asyncHandler(async (req, res) => {
   const { id } = req.validated.params;
 
   const [rows] = await pool.query(
-    `SELECT id, name, ward
+    `SELECT id, name, ward, medium
      FROM schools
      WHERE id = :id AND is_active = 1
      LIMIT 1`,

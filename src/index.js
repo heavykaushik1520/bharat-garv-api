@@ -17,6 +17,7 @@ import authRoutes from './routes/auth.js';
 import contactRoutes from './routes/contact.js';
 import programsRoutes from './routes/programs.js';
 import schoolsRoutes from './routes/schools.js';
+import studentCertificatesRoutes from './routes/studentCertificates.js';
 
 ensureUploadDirs();
 
@@ -36,7 +37,7 @@ app.use(
     origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Content-Disposition', 'X-Export-Row-Count'],
+    exposedHeaders: ['Content-Disposition', 'X-Export-Row-Count', 'X-Certificate-Code'],
   })
 );
 
@@ -85,6 +86,7 @@ app.get('/api/db-check', async (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/certificates', studentCertificatesRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/schools', schoolsRoutes);
 app.use('/api/programs', programsRoutes);

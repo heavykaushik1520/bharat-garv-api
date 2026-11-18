@@ -2,6 +2,7 @@ import pool from '../config/db.js';
 import { streamStudentExport } from '../services/studentExportService.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { httpError } from '../utils/httpError.js';
+import { formatSchoolLabel } from '../utils/schoolLabel.js';
 import { buildPagination, escapeLike } from '../utils/sql.js';
 
 const STUDENT_SELECT = `
@@ -12,6 +13,8 @@ const STUDENT_SELECT = `
   u.last_name,
   u.school_id,
   s.name AS school_name,
+  s.ward AS school_ward,
+  s.medium AS school_medium,
   u.standard,
   u.division,
   u.roll_number,
@@ -32,7 +35,14 @@ function mapStudent(row) {
     lastName: row.last_name,
     fullName: `${row.first_name} ${row.last_name}`.trim(),
     schoolId: row.school_id,
-    schoolName: row.school_name,
+    schoolName: formatSchoolLabel({
+      name: row.school_name,
+      ward: row.school_ward,
+      medium: row.school_medium,
+    }),
+    schoolNameRaw: row.school_name || null,
+    schoolWard: row.school_ward || null,
+    schoolMedium: row.school_medium || null,
     standard: row.standard,
     division: row.division,
     rollNumber: row.roll_number,
@@ -68,6 +78,8 @@ function buildStudentFilters(query, { includeStatus = true } = {}) {
       OR u.phone LIKE :like ESCAPE '\\\\'
       OR (:phoneDigits IS NOT NULL AND u.phone LIKE CONCAT('%', :phoneDigits, '%'))
       OR s.name LIKE :like ESCAPE '\\\\'
+      OR s.ward LIKE :like ESCAPE '\\\\'
+      OR s.medium LIKE :like ESCAPE '\\\\'
     )`);
   }
 

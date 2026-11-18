@@ -10,7 +10,7 @@ if (!email) {
 
 const [users] = await pool.query(
   `SELECT u.id, u.email, u.first_name, u.last_name, u.standard, u.division, u.roll_number,
-          s.name AS school_name, s.ward AS school_ward
+          s.name AS school_name, s.ward AS school_ward, s.medium AS school_medium
    FROM users u
    INNER JOIN schools s ON s.id = u.school_id
    WHERE LOWER(u.email) = :email

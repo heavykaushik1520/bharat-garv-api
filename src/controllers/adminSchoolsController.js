@@ -8,11 +8,14 @@ import {
   parseSchoolImportFile,
 } from '../services/schoolImportService.js';
 
+const DUPLICATE_MESSAGE = 'A school with this name, ward, and medium already exists';
+
 function mapSchoolRow(row) {
   return {
     id: Number(row.id),
     name: row.name,
     ward: row.ward || '',
+    medium: row.medium || '',
     created_at: row.created_at,
     updated_at: row.updated_at,
     registeredStudents:
@@ -34,6 +37,7 @@ export const listAdminSchools = asyncHandler(async (req, res) => {
          :search = ''
          OR name LIKE :like ESCAPE '\\\\'
          OR ward LIKE :like ESCAPE '\\\\'
+         OR medium LIKE :like ESCAPE '\\\\'
        )`,
     { search, like }
   );
@@ -46,6 +50,7 @@ export const listAdminSchools = asyncHandler(async (req, res) => {
        s.id,
        s.name,
        s.ward,
+       s.medium,
        s.created_at,
        s.updated_at,
        (
@@ -68,8 +73,9 @@ export const listAdminSchools = asyncHandler(async (req, res) => {
          :search = ''
          OR s.name LIKE :like ESCAPE '\\\\'
          OR s.ward LIKE :like ESCAPE '\\\\'
+         OR s.medium LIKE :like ESCAPE '\\\\'
        )
-     ORDER BY s.name ASC, s.ward ASC
+     ORDER BY s.name ASC, s.ward ASC, s.medium ASC
      LIMIT ${pagination.limit} OFFSET ${pagination.offset}`,
     { search, like }
   );
@@ -92,7 +98,7 @@ export const getAdminSchool = asyncHandler(async (req, res) => {
   const { id } = req.validated.params;
 
   const [rows] = await pool.query(
-    `SELECT id, name, ward, created_at, updated_at
+    `SELECT id, name, ward, medium, created_at, updated_at
      FROM schools
      WHERE id = :id AND is_active = 1
      LIMIT 1`,
@@ -110,25 +116,26 @@ export const getAdminSchool = asyncHandler(async (req, res) => {
 });
 
 export const createAdminSchool = asyncHandler(async (req, res) => {
-  const { name, ward } = req.validated.body;
+  const { name, ward, medium } = req.validated.body;
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
     const [existing] = await connection.query(
-      `SELECT id, name, ward, is_active
+      `SELECT id, name, ward, medium, is_active
        FROM schools
-       WHERE name = :name AND ward = :ward
+       WHERE name = :name AND ward = :ward AND medium = :medium
        LIMIT 1
        FOR UPDATE`,
-      { name, ward }
+      { name, ward, medium }
     );
 
     if (existing.length && existing[0].is_active) {
-      throw httpError('A school with this name and ward already exists', 409, [
-        { field: 'name', message: 'A school with this name and ward already exists' },
-        { field: 'ward', message: 'A school with this name and ward already exists' },
+      throw httpError(DUPLICATE_MESSAGE, 409, [
+        { field: 'name', message: DUPLICATE_MESSAGE },
+        { field: 'ward', message: DUPLICATE_MESSAGE },
+        { field: 'medium', message: DUPLICATE_MESSAGE },
       ]);
     }
 
@@ -141,7 +148,7 @@ export const createAdminSchool = asyncHandler(async (req, res) => {
       );
 
       const [restored] = await connection.query(
-        `SELECT id, name, ward, created_at, updated_at
+        `SELECT id, name, ward, medium, created_at, updated_at
          FROM schools
          WHERE id = :id
          LIMIT 1`,
@@ -158,13 +165,13 @@ export const createAdminSchool = asyncHandler(async (req, res) => {
     }
 
     const [result] = await connection.query(
-      `INSERT INTO schools (name, ward, city, is_active)
-       VALUES (:name, :ward, NULL, 1)`,
-      { name, ward }
+      `INSERT INTO schools (name, ward, medium, city, is_active)
+       VALUES (:name, :ward, :medium, NULL, 1)`,
+      { name, ward, medium }
     );
 
     const [created] = await connection.query(
-      `SELECT id, name, ward, created_at, updated_at
+      `SELECT id, name, ward, medium, created_at, updated_at
        FROM schools
        WHERE id = :id
        LIMIT 1`,
@@ -180,6 +187,13 @@ export const createAdminSchool = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     await connection.rollback();
+    if (error?.code === 'ER_DUP_ENTRY') {
+      throw httpError(DUPLICATE_MESSAGE, 409, [
+        { field: 'name', message: DUPLICATE_MESSAGE },
+        { field: 'ward', message: DUPLICATE_MESSAGE },
+        { field: 'medium', message: DUPLICATE_MESSAGE },
+      ]);
+    }
     throw error;
   } finally {
     connection.release();
@@ -188,14 +202,14 @@ export const createAdminSchool = asyncHandler(async (req, res) => {
 
 export const updateAdminSchool = asyncHandler(async (req, res) => {
   const { id } = req.validated.params;
-  const { name, ward } = req.validated.body;
+  const { name, ward, medium } = req.validated.body;
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
     const [current] = await connection.query(
-      `SELECT id, name, ward
+      `SELECT id, name, ward, medium
        FROM schools
        WHERE id = :id AND is_active = 1
        LIMIT 1
@@ -210,27 +224,28 @@ export const updateAdminSchool = asyncHandler(async (req, res) => {
     const [duplicate] = await connection.query(
       `SELECT id
        FROM schools
-       WHERE name = :name AND ward = :ward AND id <> :id
+       WHERE name = :name AND ward = :ward AND medium = :medium AND id <> :id
        LIMIT 1`,
-      { name, ward, id }
+      { name, ward, medium, id }
     );
 
     if (duplicate.length) {
-      throw httpError('A school with this name and ward already exists', 409, [
-        { field: 'name', message: 'A school with this name and ward already exists' },
-        { field: 'ward', message: 'A school with this name and ward already exists' },
+      throw httpError(DUPLICATE_MESSAGE, 409, [
+        { field: 'name', message: DUPLICATE_MESSAGE },
+        { field: 'ward', message: DUPLICATE_MESSAGE },
+        { field: 'medium', message: DUPLICATE_MESSAGE },
       ]);
     }
 
     await connection.query(
       `UPDATE schools
-       SET name = :name, ward = :ward
+       SET name = :name, ward = :ward, medium = :medium
        WHERE id = :id AND is_active = 1`,
-      { name, ward, id }
+      { name, ward, medium, id }
     );
 
     const [updated] = await connection.query(
-      `SELECT id, name, ward, created_at, updated_at
+      `SELECT id, name, ward, medium, created_at, updated_at
        FROM schools
        WHERE id = :id
        LIMIT 1`,
@@ -246,6 +261,13 @@ export const updateAdminSchool = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     await connection.rollback();
+    if (error?.code === 'ER_DUP_ENTRY') {
+      throw httpError(DUPLICATE_MESSAGE, 409, [
+        { field: 'name', message: DUPLICATE_MESSAGE },
+        { field: 'ward', message: DUPLICATE_MESSAGE },
+        { field: 'medium', message: DUPLICATE_MESSAGE },
+      ]);
+    }
     throw error;
   } finally {
     connection.release();
@@ -260,7 +282,7 @@ export const deleteAdminSchool = asyncHandler(async (req, res) => {
     await connection.beginTransaction();
 
     const [current] = await connection.query(
-      `SELECT id, name, ward
+      `SELECT id, name, ward, medium
        FROM schools
        WHERE id = :id AND is_active = 1
        LIMIT 1

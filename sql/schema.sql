@@ -8,14 +8,16 @@ CREATE TABLE IF NOT EXISTS schools (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name VARCHAR(180) NOT NULL,
   ward VARCHAR(120) NOT NULL DEFAULT '',
+  medium VARCHAR(80) NOT NULL DEFAULT '',
   city VARCHAR(100) NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_schools_name_ward (name, ward),
+  UNIQUE KEY uq_schools_name_ward_medium (name, ward, medium),
   KEY idx_schools_active (is_active),
   KEY idx_schools_ward (ward),
+  KEY idx_schools_medium (medium),
   KEY idx_schools_name_active (is_active, name)
 ) ENGINE=InnoDB;
 
@@ -124,17 +126,18 @@ CREATE TABLE IF NOT EXISTS mail_log (
   KEY idx_mail_log_to_email (to_email)
 ) ENGINE=InnoDB;
 
-INSERT INTO schools (name, ward, city, is_active) VALUES
-  ('Bharatiya Vidya Bhavan', 'Ward A', 'Mumbai', 1),
-  ('Don Bosco High School', 'Ward A', 'Mumbai', 1),
-  ('St. Xavier''s High School', 'Ward B', 'Mumbai', 1),
-  ('Ryan International School', 'Ward B', 'Mumbai', 1),
-  ('Atomic Energy Central School', 'Ward C', 'Mumbai', 1),
-  ('Cathedral & John Connon School', 'Ward C', 'Mumbai', 1),
-  ('Bombay Scottish School', 'Ward D', 'Mumbai', 1),
-  ('Jamnabai Narsee School', 'Ward D', 'Mumbai', 1)
+INSERT INTO schools (name, ward, medium, city, is_active) VALUES
+  ('Bharatiya Vidya Bhavan', 'Ward A', 'English', 'Mumbai', 1),
+  ('Don Bosco High School', 'Ward A', 'English', 'Mumbai', 1),
+  ('St. Xavier''s High School', 'Ward B', 'English', 'Mumbai', 1),
+  ('Ryan International School', 'Ward B', 'English', 'Mumbai', 1),
+  ('Atomic Energy Central School', 'Ward C', 'English', 'Mumbai', 1),
+  ('Cathedral & John Connon School', 'Ward C', 'English', 'Mumbai', 1),
+  ('Bombay Scottish School', 'Ward D', 'English', 'Mumbai', 1),
+  ('Jamnabai Narsee School', 'Ward D', 'English', 'Mumbai', 1)
 ON DUPLICATE KEY UPDATE
   ward = VALUES(ward),
+  medium = VALUES(medium),
   city = VALUES(city),
   is_active = VALUES(is_active);
 

@@ -104,7 +104,8 @@ async function loadRecipientSnapshot(userId, program, connection = pool) {
        u.division,
        u.roll_number,
        s.name AS school_name,
-       s.ward AS school_ward
+       s.ward AS school_ward,
+       s.medium AS school_medium
      FROM users u
      INNER JOIN schools s ON s.id = u.school_id
      WHERE u.id = :userId AND u.is_active = 1
@@ -117,6 +118,7 @@ async function loadRecipientSnapshot(userId, program, connection = pool) {
     throw httpError('Account not found or deactivated', 404);
   }
 
+  // Certificate body uses "School Name, Ward" (medium is for signup distinction)
   const schoolName = String(user.school_ward || '').trim()
     ? `${String(user.school_name).trim()}, ${String(user.school_ward).trim()}`
     : String(user.school_name || '').trim();
@@ -393,12 +395,153 @@ export async function buildCertificatePdfForUserProgram(userId, programId) {
   return { certificate, pdf };
 }
 
+/**
+ * List certificates for the signed-in student (newest first).
+ * Hard-capped for profile payloads under traffic.
+ */
+export async function listCertificatesForUser(userId, { limit = 50 } = {}) {
+  const safeLimit = Math.min(50, Math.max(1, Number(limit) || 50));
+  const [rows] = await pool.query(
+    `SELECT
+       c.id,
+       c.user_id,
+       c.program_id,
+       c.certificate_code,
+       c.full_name,
+       c.school_name,
+       c.division,
+       c.roll_number,
+       c.standard,
+       c.program_heading,
+       c.issued_at,
+       c.emailed_at,
+       c.created_at,
+       p.slug AS program_slug,
+       p.is_active AS program_is_active
+     FROM program_certificates c
+     INNER JOIN programs p ON p.id = c.program_id
+     WHERE c.user_id = :userId
+     ORDER BY c.issued_at DESC, c.id DESC
+     LIMIT ${safeLimit}`,
+    { userId }
+  );
+
+  return rows.map((row) => ({
+    ...mapCertificate(row),
+    programSlug: row.program_slug || null,
+    programActive: Boolean(row.program_is_active),
+  }));
+}
+
+async function loadProgramForCertificate(programId, connection = pool) {
+  const [rows] = await connection.query(
+    `SELECT id, slug, heading_en, heading_hi, heading_mr, is_active
+     FROM programs
+     WHERE id = :programId
+     LIMIT 1`,
+    { programId }
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Refresh certificate snapshot from the student's current profile,
+ * keep certificate_code + issued_at, then build a fresh PDF.
+ * Does not send email (profile download / regenerate is on-site).
+ */
+export async function regenerateCertificateForUserProgram(userId, programId) {
+  const connection = await pool.getConnection();
+  let certificate;
+
+  try {
+    await connection.beginTransaction();
+
+    const [locked] = await connection.query(
+      `SELECT *
+       FROM program_certificates
+       WHERE user_id = :userId AND program_id = :programId
+       LIMIT 1
+       FOR UPDATE`,
+      { userId, programId }
+    );
+
+    if (!locked.length) {
+      throw httpError(
+        'Certificate is not available yet. Complete all sections of the programme first.',
+        404,
+        [{ field: 'certificate', message: 'Complete all sections to unlock your certificate' }]
+      );
+    }
+
+    const program = await loadProgramForCertificate(programId, connection);
+    if (!program) {
+      throw httpError('Programme not found for this certificate', 404);
+    }
+
+    const snapshot = await loadRecipientSnapshot(userId, program, connection);
+
+    await connection.query(
+      `UPDATE program_certificates
+       SET full_name = :fullName,
+           school_name = :schoolName,
+           division = :division,
+           roll_number = :rollNumber,
+           standard = :standard,
+           program_heading = :programHeading
+       WHERE id = :id AND user_id = :userId`,
+      {
+        id: locked[0].id,
+        userId,
+        fullName: snapshot.fullName,
+        schoolName: snapshot.schoolName,
+        division: snapshot.division,
+        rollNumber: snapshot.rollNumber,
+        standard: snapshot.standard,
+        programHeading: snapshot.programHeading,
+      }
+    );
+
+    const [updatedRows] = await connection.query(
+      `SELECT
+         c.*,
+         p.slug AS program_slug,
+         p.is_active AS program_is_active
+       FROM program_certificates c
+       INNER JOIN programs p ON p.id = c.program_id
+       WHERE c.id = :id
+       LIMIT 1`,
+      { id: locked[0].id }
+    );
+
+    await connection.commit();
+
+    certificate = {
+      ...mapCertificate(updatedRows[0]),
+      programSlug: updatedRows[0].program_slug || null,
+      programActive: Boolean(updatedRows[0].program_is_active),
+      email: snapshot.email,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  const pdf = await buildParticipationCertificatePdf(certificate);
+  return { certificate, pdf };
+}
+
 /** Public payload for students (safe fields only). */
 export function toPublicCertificate(certificate) {
   if (!certificate) return null;
   return {
     issued: true,
     emailed: Boolean(certificate.emailedAt),
+    programId: certificate.programId != null ? Number(certificate.programId) : null,
+    programSlug: certificate.programSlug || null,
+    programActive:
+      certificate.programActive == null ? true : Boolean(certificate.programActive),
     certificateCode: certificate.certificateCode,
     fullName: certificate.fullName,
     schoolName: certificate.schoolName,

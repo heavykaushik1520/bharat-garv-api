@@ -231,12 +231,12 @@ CREATE TABLE program_section_answers (
 -- DUMMY DATA
 -- ---------------------------------------------------------------------------
 
-INSERT INTO schools (id, name, city, is_active) VALUES
-  (1, 'Bharatiya Vidya Bhavan', 'Mumbai', 1),
-  (2, 'Don Bosco High School', 'Mumbai', 1),
-  (3, 'St. Xavier''s High School', 'Mumbai', 1),
-  (4, 'Ryan International School', 'Mumbai', 1),
-  (5, 'Atomic Energy Central School', 'Mumbai', 1);
+INSERT INTO schools (id, name, ward, medium, city, is_active) VALUES
+  (1, 'Bharatiya Vidya Bhavan', 'Ward A', 'English', 'Mumbai', 1),
+  (2, 'Don Bosco High School', 'Ward A', 'English', 'Mumbai', 1),
+  (3, 'St. Xavier''s High School', 'Ward B', 'English', 'Mumbai', 1),
+  (4, 'Ryan International School', 'Ward B', 'English', 'Mumbai', 1),
+  (5, 'Atomic Energy Central School', 'Ward C', 'English', 'Mumbai', 1);
 
 -- password / encrypted_password for Welcome@123 (bcrypt cost 12)
 INSERT INTO users (

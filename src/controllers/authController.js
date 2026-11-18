@@ -61,7 +61,7 @@ export const signup = asyncHandler(async (req, res) => {
     await connection.beginTransaction();
 
     const [schools] = await connection.query(
-      `SELECT id, name, ward
+      `SELECT id, name, ward, medium
        FROM schools
        WHERE id = :schoolId AND is_active = 1
        LIMIT 1`,

@@ -27,11 +27,25 @@ const schoolWardSchema = z
       })
   );
 
+const schoolMediumSchema = z
+  .string({ required_error: 'Medium is required' })
+  .transform((value) => normalizeSchoolText(value))
+  .pipe(
+    z
+      .string()
+      .min(1, 'Medium is required')
+      .max(80, 'Medium must be at most 80 characters')
+      .refine((value) => /[A-Za-z0-9]/.test(value), {
+        message: 'Medium must include letters or numbers',
+      })
+  );
+
 export const createSchoolSchema = z.object({
   body: z
     .object({
       name: schoolNameSchema,
       ward: schoolWardSchema,
+      medium: schoolMediumSchema,
     })
     .strict(),
 });
@@ -47,6 +61,7 @@ export const updateSchoolSchema = z.object({
     .object({
       name: schoolNameSchema,
       ward: schoolWardSchema,
+      medium: schoolMediumSchema,
     })
     .strict(),
 });
@@ -95,4 +110,4 @@ export const schoolImportTemplateSchema = z.object({
   }),
 });
 
-export { schoolNameSchema, schoolWardSchema };
+export { schoolNameSchema, schoolWardSchema, schoolMediumSchema };
